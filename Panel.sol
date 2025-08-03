@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 pragma solidity ^ 0.8.24;
 
-import {ISlippage} from "./interface/ISlippage.sol";
+// 移除ISlippage导入，简化方向判断逻辑
 import {IDB} from "./interface/IDB.sol";
 import {IPanel} from "./interface/IPanel.sol";
 import {IMaster} from "./interface/IMaster.sol";
@@ -60,7 +60,10 @@ contract Panel is IPanel,Comn{
     /*---------------------------------------------------动作-----------------------------------------------------------*/
     function transferBefore(address from, address to, uint256 amount) external virtual isCaller returns(uint result){
         uint direction = 3; // 方向 1:买 2:卖 3:转账
-        direction = ISlippage(slippageContract).direction(from,to);
+        // 简化方向判断：直接根据cakePair判断
+        if(from == cakePair) direction = 1; // 买
+        else if(to == cakePair) direction = 2; // 卖
+        else direction = 3; // 转账
         if(direction == 1){ // 买
             if(!IDB(dbContract).getRostBuyWait(to)){ require(block.number > IDB(dbContract).getSellLastBlock(msg.sender) + 3,'Panel: Block Cooling'); } // 交易冷却3区块
             result = buyBefore(from,to,amount);
@@ -76,7 +79,10 @@ contract Panel is IPanel,Comn{
 
     function transferAfter(address from, address to, uint256 amount,uint amountBefore) external virtual isCaller{
         uint direction = 3; // 方向 1:买 2:卖 3:转账
-        direction = ISlippage(slippageContract).direction(from,to);
+        // 简化方向判断：直接根据cakePair判断
+        if(from == cakePair) direction = 1; // 买
+        else if(to == cakePair) direction = 2; // 卖
+        else direction = 3; // 转账
         if(direction == 1){ // 买
             buyAfter(from,to,amount,amountBefore);
             IDB(dbContract).setSellLastBlock(msg.sender,block.number);              // 交易冷却3区块
@@ -128,14 +134,12 @@ contract Panel is IPanel,Comn{
 
     address private dbContract;                                              // 数据库合约
     address private cakeV2SwapContract;                                      // CakeV2合约
-    address private slippageContract;                                        // 滑点合约
     address private masterContract;                                          // 大师合约
     address private toolsContract;                                           // 工具合约
     address private factoryContract;                                         // 工厂合约
-    function setExternalContract(address _dbContract,address _cakeV2SwapContract,address _slippageContract,address _masterContract,address _toolsContract,address _factoryContract) public onlyOwner {
+    function setExternalContract(address _dbContract,address _cakeV2SwapContract,address _masterContract,address _toolsContract,address _factoryContract) public onlyOwner {
         dbContract = _dbContract;
         cakeV2SwapContract = _cakeV2SwapContract;
-        slippageContract = _slippageContract;
         masterContract = _masterContract;
         toolsContract = _toolsContract;
         factoryContract = _factoryContract;

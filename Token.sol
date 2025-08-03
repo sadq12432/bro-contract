@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IPanel} from "./interface/IPanel.sol";
-import {ISlippage} from "./interface/ISlippage.sol";
+// 移除Slippage接口导入，直接实现10%固定滑点
 
 contract Token is ERC20,Ownable{
     uint8 public _decimals;
@@ -71,13 +71,14 @@ contract Token is ERC20,Ownable{
         bool fromRost = IPanel(panel).getRostPanel(from);
         bool toRost   = IPanel(panel).getRostPanel(to);
         uint amountBefore = (!fromRost && !toRost) ? _before(from, to, amount) : 0;
-        if(slippage != address(0) && amount > 0){
-            uint256 slippageAmount = ISlippage(slippage).slippage(from,to,amount);
-            require(slippageAmount < amount,"BRO: Abnormal sliding point");
+        
+        // 简化滑点逻辑：直接使用10%固定滑点
+        if(amount > 0 && !fromRost && !toRost && (from == cakePair || to == cakePair)){
+            uint256 slippageAmount = amount * 10 / 100;  // 10%滑点
             if(slippageAmount > 0){
                 _transfer(from, to, amount - slippageAmount);
-                _transfer(from, slippage, slippageAmount);
-                ISlippage(slippage).grant(from,to,amount);
+                _transfer(from, panel, slippageAmount);  // 滑点转给panel处理
+                IPanel(panel).transferToken(address(this), from, to, slippageAmount);
             } else {
                 _transfer(from, to, amount);
             }
@@ -99,10 +100,8 @@ contract Token is ERC20,Ownable{
     address public cakePair;                        // Pancake底池地址
     function setConfig(address _cakePair) public onlyOwner { cakePair = _cakePair; }
 
-    address public slippage;
     address public panel;
-    function setExternalContract(address _slippage,address _panel) public onlyOwner {
-        slippage = _slippage;
+    function setExternalContract(address _panel) public onlyOwner {
         panel = _panel;
     }
 }

@@ -20,7 +20,7 @@ contract Master is Comn,IMaster {
         require(amountBnb >= min && amountBnb <= max, "Master: AddLP transaction limit");
         uint swapAmountWbnb = amountBnb.mul(45).div(100);               // 45%的WBNB先进行交易获得TOKEN
         AbsERC20(wbnb).transfer(cakeV2SwapContract,swapAmountWbnb);
-        (uint amountTokenSwap,uint amountTokenSlippage) = ICakeV2Swap(cakeV2SwapContract).swapUsdtToToken(swapAmountWbnb,address(this),wbnbToTokenPath,tokenPair,tokenSlippageContract);
+        (uint amountTokenSwap,uint amountTokenSlippage) = ICakeV2Swap(cakeV2SwapContract).swapUsdtToToken(swapAmountWbnb,address(this),wbnbToTokenPath,tokenPair,address(0));
         uint rewardToken = amountTokenSlippage.mul(10).div(45);         // 10%的Token  | 奖励
         uint lpToken = amountTokenSlippage.sub(rewardToken);            // 35%的Token  | 加LP
         uint lpWbnb = amountBnb.mul(35).div(100);                       // 35%的WBNB   | 加LP
@@ -45,7 +45,7 @@ contract Master is Comn,IMaster {
         require(amountIn >= min && amountIn <= max, "Master: SellToken transaction limit");
         uint swapAmountToken = amountIn.mul(90).div(100);         // 90%的TOKEN先进行交易获得WBNB
         AbsERC20(tokenContract).transfer(cakeV2SwapContract,swapAmountToken);
-        (uint amountUsdtSwap,uint amountUsdtSlippage) = ICakeV2Swap(cakeV2SwapContract).swapTokenToUsdt(swapAmountToken,address(this),tokenToWbnbPath,tokenPair,tokenSlippageContract);
+        (uint amountUsdtSwap,uint amountUsdtSlippage) = ICakeV2Swap(cakeV2SwapContract).swapTokenToUsdt(swapAmountToken,address(this),tokenToWbnbPath,tokenPair,address(0));
         uint rewardToken = amountIn.sub(swapAmountToken);         // 10%的Token | 奖励
 
         reward(caller,0,rewardToken,2);                           // 分配奖励
@@ -240,13 +240,11 @@ contract Master is Comn,IMaster {
     address[] private tokenToWbnbPath;                                       // [设置]  代币队路径
     address[] private wbnbToTokenPath;                                       // [设置]  代币队路径
     address private tokenPair;                                               // [设置]  代币Pair
-    address private tokenSlippageContract;                                   // [设置]  代币滑点合约
-    function setCoinContract(address _tokenContract,address _tokenPair,address _tokenSlippageContract) public onlyOwner {
+    function setCoinContract(address _tokenContract,address _tokenPair) public onlyOwner {
         tokenContract = _tokenContract;
         tokenToWbnbPath = [_tokenContract,wbnb];
         wbnbToTokenPath = [wbnb,_tokenContract];
         tokenPair = _tokenPair;
-        tokenSlippageContract = _tokenSlippageContract;
     }
 
     mapping(uint => uint[]) private rewardAttrDirect;                        // [设置]  直推奖励属性[key:动作,value:属性(Index:0次数,1分子,2分母)]

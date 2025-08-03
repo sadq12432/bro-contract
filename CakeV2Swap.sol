@@ -3,7 +3,7 @@ pragma solidity ^ 0.8.24;
 
 import {IPancakeRouterV2} from "./comn/interface/IPancakeRouterV2.sol";
 import {ICakeV2Swap} from "./interface/ICakeV2Swap.sol";
-import {ISlippage} from "./interface/ISlippage.sol";
+// 移除ISlippage导入，简化滑点逻辑
 import {SafeMath} from "./comn/library/SafeMath.sol";
 import "./comn/Comn.sol";
 
@@ -13,7 +13,8 @@ contract CakeV2Swap is Comn,ICakeV2Swap{
 
     /*---------------------------------------------------精准交易-----------------------------------------------------------*/
     function swapTokenToUsdt(uint amountToken,address receiveAddress,address[] memory path,address pair,address slippage) external virtual isCaller returns (uint amountUsdtSwap,uint amountUsdtSlippage){
-        uint amountSlippage = ISlippage(slippage).slippage(address(this),pair,amountToken);
+        // 简化：直接使用10%滑点
+        uint amountSlippage = amountToken.mul(10).div(100);
         uint amountOutMin = getInToOut(amountToken-amountSlippage,path,pair).mul(minScale[0]).div(minScale[1]);       // 预测:使用token,获得Usdt(结果再打指定折)
         amountUsdtSwap = swapInToOut(amountToken,amountOutMin,path,receiveAddress);                                   // 兑换:使用token,获得Usdt (这里暂时保留验证,实际到帐USDT是否会因为滑点而受影响)
         amountUsdtSlippage = amountUsdtSwap;
@@ -22,7 +23,8 @@ contract CakeV2Swap is Comn,ICakeV2Swap{
     function swapUsdtToToken(uint amountUsdt,address receiveAddress,address[] memory path,address pair,address slippage) external virtual isCaller returns (uint amountTokenSwap,uint amountTokenSlippage){
         uint amountOutMin = getInToOut(amountUsdt,path,pair).mul(minScale[0]).div(minScale[1]);        // 预测:使用Usdt,获得token(结果再打指定折)
         amountTokenSwap = swapInToOut(amountUsdt,amountOutMin,path,receiveAddress);                    // 兑换:使用Usdt,获得token
-        uint amountSlippage = ISlippage(slippage).slippage(pair,receiveAddress,amountTokenSwap);
+        // 简化：直接使用10%滑点
+        uint amountSlippage = amountTokenSwap.mul(10).div(100);
         amountTokenSlippage = amountTokenSwap - amountSlippage;
     }
 
@@ -35,7 +37,8 @@ contract CakeV2Swap is Comn,ICakeV2Swap{
 
     /*---------------------------------------------------扣费交易-----------------------------------------------------------*/
     function swapTokenToUsdtFee(uint amountToken,address receiveAddress,address[] memory path,address pair,address slippage) external virtual isCaller {
-        uint amountSlippage = ISlippage(slippage).slippage(address(this),pair,amountToken);
+        // 简化：直接使用10%滑点
+        uint amountSlippage = amountToken.mul(10).div(100);
         uint amountOutMin = getInToOut(amountToken-amountSlippage,path,pair).mul(minScale[0]).div(minScale[1]);       // 预测:使用token,获得Usdt(结果再打指定折)
         swapInToOutFee(amountToken,amountOutMin,path,receiveAddress);                                                 // 兑换:使用token,获得Usdt (这里暂时保留验证,实际到帐USDT是否会因为滑点而受影响)
     }
