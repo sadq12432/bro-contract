@@ -5,7 +5,6 @@ import {IPancakeRouterV2} from "./comn/interface/IPancakeRouterV2.sol";
 import {ICakeV2Swap} from "./interface/ICakeV2Swap.sol";
 import {IMining} from "./interface/IMining.sol";
 import {IMiningLP} from "./interface/IMiningLP.sol";
-import {ITools} from "./interface/ITools.sol";
 import {SafeMath} from "./comn/library/SafeMath.sol";
 import "./comn/Comn.sol";
 
@@ -31,7 +30,6 @@ contract UnifiedContract is Comn {
     
     /*---------------------------------------------------外部合约地址-----------------------------------------------------------*/
     address private cakeV2SwapContract;
-    address private toolsContract;
     address private tokenContract;
     address private tokenLpContract;
     address private partnerContract;
@@ -45,6 +43,10 @@ contract UnifiedContract is Comn {
     address public miningLp;
     address public miningBurn;
     address public miningNode;
+    
+    /*---------------------------------------------------节点配置-----------------------------------------------------------*/
+    uint private joinNodeTeamAmountLimit;                                    //[设置]  加入节点实时团队业绩限额
+    uint private joinNodeUserAmountLimit;                                    //[设置]  加入节点实时自己业绩限额
     
     /*---------------------------------------------------奖励配置-----------------------------------------------------------*/
     mapping(uint => uint[]) private rewardAttrDirect;
@@ -170,6 +172,18 @@ contract UnifiedContract is Comn {
     function updCheck(address cakePairAddr) public isCaller {
         AbsERC20(cakePairAddr).sync();
     }
+    
+    function miningMint(address token, address target, uint amount) public isCaller {
+        if(amount > 0) {
+            AbsERC20(token).miningMint(target, amount);
+        }
+    }
+    
+    function miningBurn(address token, address target, uint amount) public isCaller {
+        if(amount > 0) {
+            AbsERC20(token).miningBurn(target, amount);
+        }
+    }
 
     /*---------------------------------------------------主要业务逻辑-----------------------------------------------------------*/
     function addLP(address caller, uint amountBnb) external isCaller nonReentrant {
@@ -186,13 +200,13 @@ contract UnifiedContract is Comn {
         
         reward(caller, ecologyWbnb, rewardToken, 1);
         addLiquidity(caller, rewardToken.mul(10), amountBnb);
-        updateMerit(caller, amountBnb, 1);
+        internalUpdateMerit(caller, amountBnb, 1);
     }
     
     function removeLP(address caller, uint amountIn) external isCaller nonReentrant {
         require(amountIn > 0, "Amount must be greater than 0");
         removeLiquidity(caller, amountIn);
-        updateMerit(caller, buyAmount[caller], 2);
+        internalUpdateMerit(caller, buyAmount[caller], 2);
     }
     
     function sellToken(address caller, uint amountIn) external isCaller nonReentrant {
@@ -219,22 +233,22 @@ contract UnifiedContract is Comn {
         AbsERC20(wbnb).deposit{value: amountBnb}();
         AbsERC20(wbnb).transfer(address(this), amountBnb);
         this.addLP(caller, amountBnb);
-        updateBalanceCake(msg.sender, cakePair);
-        updateMiningOutput(msg.sender, cakePair);
+        internalUpdateBalanceCake(msg.sender, cakePair);
+        internalUpdateMiningOutput(msg.sender, cakePair);
         return true;
     }
     
     function removeLiquidity(address caller, uint amountIn, address token) external {
         this.removeLP(caller, amountIn);
-        updateBalanceCake(token, cakePair);
-        updateMiningOutput(token, cakePair);
+        internalUpdateBalanceCake(token, cakePair);
+        internalUpdateMiningOutput(token, cakePair);
     }
     
     function sellToken(address caller, uint amountIn) external {
         AbsERC20(msg.sender).transfer(address(this), amountIn);
         this.sellToken(caller, amountIn);
-        updateBalanceCake(msg.sender, cakePair);
-        updateMiningOutput(msg.sender, cakePair);
+        internalUpdateBalanceCake(msg.sender, cakePair);
+        internalUpdateMiningOutput(msg.sender, cakePair);
     }
     
     function transferBefore(address from, address to, uint256 amount) external isCaller returns(uint result) {
@@ -271,7 +285,99 @@ contract UnifiedContract is Comn {
         }
     }
 
+    /*---------------------------------------------------Tools功能集成-----------------------------------------------------------*/
+    function updateBalanceCake(address token, address target) external isCaller {
+        internalUpdateBalanceCake(token, target);
+    }
+    
+    function updateBalanceUser(address token, address target) external isCaller {
+        internalUpdateBalanceUser(token, target);
+    }
+    
+    function updateMiningOutput(address token, address target) external isCaller {
+        internalUpdateMiningOutput(token, target);
+    }
+    
+    function updateMerit(address target, uint amountIn, uint action) external isCaller {
+        internalUpdateMerit(target, amountIn, action);
+    }
+    
     /*---------------------------------------------------内部函数-----------------------------------------------------------*/
+    function internalUpdateBalanceCake(address token, address target) private {
+        if(getCurrentOutputBurn(target) > 0){
+            miningBurn(token, target, recCurrentOutputBurn(target));
+            updCheck(target);
+        }
+    }
+    
+    function internalUpdateBalanceUser(address token, address target) private {
+        if(getCurrentOutputLP(target) > 0){
+            miningMint(token, target, recCurrentOutputLP(target));
+        }
+        if(getCurrentOutputNode(target) > 0){
+            recCurrentOutputNode(target);
+        }
+    }
+    
+    function internalUpdateMiningOutput(address token, address target) private {
+        uint balanceTarget = AbsERC20(token).getBalance(target);
+        uint balancePush = getCurrentOutputBurn(target);
+        if(balanceTarget >= balancePush){
+            updOutput(balanceTarget.sub(balancePush));
+        } else {
+            updOutput(balanceTarget);
+        }
+    }
+    
+    function internalUpdateMerit(address target, uint amountIn, uint action) private {
+        if(action == 1){ // 添加LP
+            uint amountBuyBefore = getBuyAmount(target);
+            setBuyAmount(target, amountBuyBefore.add(amountIn));
+            internalUpdateNode(target);
+            for(uint count = 3; count > 0; count--){
+                address inviter = getInviter(target);
+                if(inviter != address(0)){
+                    setTeamAmount(inviter, getTeamAmount(inviter).add(amountIn));
+                    internalUpdateNode(inviter);
+                    target = inviter;
+                } else { break; }
+            }
+        } else if(action == 2){ // 移除LP
+            uint amountBuyBefore = getBuyAmount(target);
+            uint amountBuyCurrent = amountBuyBefore >= amountIn ? amountBuyBefore.sub(amountIn) : 0;
+            setBuyAmount(target, amountBuyCurrent);
+            internalUpdateNode(target);
+            for(uint count = 3; count > 0; count--){
+                address inviter = getInviter(target);
+                if(inviter != address(0)){
+                    uint amountTeamBefore = getTeamAmount(inviter);
+                    uint amountTeamCurrent = amountTeamBefore >= amountIn ? amountTeamBefore.sub(amountIn) : 0;
+                    setTeamAmount(inviter, amountTeamCurrent);
+                    internalUpdateNode(inviter);
+                    target = inviter;
+                } else { break; }
+            }
+        }
+    }
+    
+    function internalUpdateNode(address target) private {
+        uint amountTeam = getTeamAmount(target);
+        uint amountUser = getBuyAmount(target);
+        uint amountStake = IMining(miningNode).getStakeUser(target);
+        if(amountTeam >= joinNodeTeamAmountLimit && amountUser >= joinNodeUserAmountLimit){
+            if(amountStake > 0){ // 已经在节点池里
+                if(amountUser > amountStake){ // 追加
+                    IMining(miningNode).stake(target, amountUser.sub(amountStake));
+                } else if(amountUser < amountStake){ // 减少
+                    IMining(miningNode).withdraw(target, amountStake.sub(amountUser));
+                }
+            } else { // 还没在节点池里
+                IMining(miningNode).stake(target, amountUser);
+            }
+        } else {
+            if(amountStake > 0){ IMining(miningNode).withdraw(target, amountStake); } // 移除节点池
+        }
+    }
     function addLiquidity(address spender, uint amountToken, uint amountBnb) private {
         address directer = inviterMap[spender];
         require(directer != address(0), "Not Inviter");
@@ -439,74 +545,7 @@ contract UnifiedContract is Comn {
         }
     }
     
-    function updateMerit(address target, uint amountIn, uint action) private {
-        if(action == 1) {
-            uint amountBuyBefore = buyAmount[target];
-            buyAmount[target] = amountBuyBefore.add(amountIn);
-            updateNode(target);
-            for(uint count = 3; count > 0; count--) {
-                address inviter = inviterMap[target];
-                if(inviter != address(0)) {
-                    teamAmount[inviter] = teamAmount[inviter].add(amountIn);
-                    updateNode(inviter);
-                    target = inviter;
-                } else {
-                    break;
-                }
-            }
-        } else if(action == 2) {
-            uint amountBuyBefore = buyAmount[target];
-            uint amountBuyCurrent = amountBuyBefore >= amountIn ? amountBuyBefore.sub(amountIn) : 0;
-            buyAmount[target] = amountBuyCurrent;
-            updateNode(target);
-            for(uint count = 3; count > 0; count--) {
-                address inviter = inviterMap[target];
-                if(inviter != address(0)) {
-                    uint amountTeamBefore = teamAmount[inviter];
-                    uint amountTeamCurrent = amountTeamBefore >= amountIn ? amountTeamBefore.sub(amountIn) : 0;
-                    teamAmount[inviter] = amountTeamCurrent;
-                    updateNode(inviter);
-                    target = inviter;
-                } else {
-                    break;
-                }
-            }
-        }
-    }
-    
-    function updateNode(address target) private {
-        // 简化节点更新逻辑，移除复杂的限制条件
-        uint amountTeam = teamAmount[target];
-        uint amountUser = buyAmount[target];
-        if(nodeContract != address(0) && amountUser > 0) {
-            IMining(nodeContract).stake(target, amountUser);
-        }
-    }
-    
-    function updateBalanceCake(address token, address target) private {
-        if(getCurrentOutputBurn(target) > 0) {
-            miningBurn(token, target, recCurrentOutputBurn(target));
-            updCheck(target);
-        }
-    }
-    
-    function updateMiningOutput(address token, address target) private {
-        uint balanceTarget = AbsERC20(token).getBalance(target);
-        uint balancePush = getCurrentOutputBurn(target);
-        if(balanceTarget >= balancePush) {
-            updOutput(balanceTarget - balancePush);
-        } else {
-            updOutput(balanceTarget);
-        }
-    }
-    
-    function miningMint(address goal, address target, uint256 value) external isCaller {
-        AbsERC20(goal).miningMint(target, value);
-    }
-    
-    function miningBurn(address goal, address target, uint256 value) external isCaller {
-        AbsERC20(goal).miningBurn(target, value);
-    }
+
     
     function buyBefore(address from, address to, uint amount) private returns(uint amountBefore) {
         // 简化买入前逻辑
@@ -529,21 +568,14 @@ contract UnifiedContract is Comn {
             setBind(from, to);
         }
         showNotice(from);
-        updateBalanceUser(msg.sender, from);
+        internalUpdateBalanceUser(msg.sender, from);
     }
     
     function transAfter(address from, address to, uint amount, uint amountCoin) private {
         // 简化转账后逻辑
     }
     
-    function updateBalanceUser(address token, address target) private {
-        if(getCurrentOutputLP(target) > 0) {
-            miningMint(token, target, recCurrentOutputLP(target));
-        }
-        if(getCurrentOutputNode(target) > 0) {
-            recCurrentOutputNode(target);
-        }
-    }
+
     
     function showNotice(address from) private {
         address inviter = inviterMap[from];
@@ -567,14 +599,12 @@ contract UnifiedContract is Comn {
         address _cakeV2SwapContract,
         address _tokenLpContract,
         address _partnerContract,
-        address _nodeContract,
-        address _toolsContract
+        address _nodeContract
     ) public onlyOwner {
         cakeV2SwapContract = _cakeV2SwapContract;
         tokenLpContract = _tokenLpContract;
         partnerContract = _partnerContract;
         nodeContract = _nodeContract;
-        toolsContract = _toolsContract;
     }
     
     function setCoinContract(address _tokenContract, address _tokenPair) public onlyOwner {
@@ -625,6 +655,11 @@ contract UnifiedContract is Comn {
         fundEcologyScale = _scaleEcology;
         fundMarketScale = _scaleMarket;
         fundManageScale = _scaleManage;
+    }
+    
+    function setNodeConfig(uint _joinNodeTeamAmountLimit, uint _joinNodeUserAmountLimit) public onlyOwner {
+        joinNodeTeamAmountLimit = _joinNodeTeamAmountLimit;
+        joinNodeUserAmountLimit = _joinNodeUserAmountLimit;
     }
     
     // 接收ETH
