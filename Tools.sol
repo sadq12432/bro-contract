@@ -25,9 +25,7 @@ contract Tools is Comn,ITools {
         if(IFactory(factory).getCurrentOutputLP(target) > 0){
             IPanel(panel).miningMint(token,target,IFactory(factory).recCurrentOutputLP(target));
         }
-        if(IFactory(factory).getCurrentOutputPartner(target) > 0){
-            IFactory(factory).recCurrentOutputPartner(target);
-        }
+        // 移除合伙人相关功能
         if(IFactory(factory).getCurrentOutputNode(target) > 0){
             IFactory(factory).recCurrentOutputNode(target);
         }
@@ -53,7 +51,7 @@ contract Tools is Comn,ITools {
                 address inviter = IDB(dbContract).getInviter(target);
                 if(inviter != address(0)){
                     IDB(dbContract).setTeamAmount(inviter,IDB(dbContract).getTeamAmount(inviter).add(amountIn));
-                    updatePartner(inviter);
+                    // 移除合伙人相关功能
                     updateNode(inviter);
                     target = inviter;
                 } else { break; }
@@ -70,7 +68,7 @@ contract Tools is Comn,ITools {
                     uint amountTeamBefore = IDB(dbContract).getTeamAmount(inviter);
                     uint amountTeamCurrent = amountTeamBefore >= amountIn ? amountTeamBefore.sub(amountIn) : 0 ;
                     IDB(dbContract).setTeamAmount(inviter,amountTeamCurrent);
-                    updatePartner(inviter);
+                    // 移除合伙人相关功能
                     updateNode(inviter);
                     target = inviter;
                 } else { break; }
@@ -78,25 +76,7 @@ contract Tools is Comn,ITools {
         }
     }
     /*---------------------------------------------------内部-----------------------------------------------------------*/
-    function updatePartner(address target) private isCaller { // 更新合伙人
-        uint amountTeam = IDB(dbContract).getTeamAmount(target);                    // 团队实时业绩
-        uint amountUser = IDB(dbContract).getBuyAmount(target);                     // 个人报单业绩
-        uint amountStake = IMining(miningPartnerContract).getStakeUser(target);     // 个人当前质押
-        if(amountTeam >= joinPartnerTeamAmountLimit && amountUser >= joinPartnerUserAmountLimit){
-            if(amountStake > 0){ // 已经在合伙人池里
-                if(amountUser > amountStake){ // 追加
-                    IMining(miningPartnerContract).stake(target,amountUser.sub(amountStake));
-                } else
-                if(amountUser < amountStake){ // 减少
-                    IMining(miningPartnerContract).withdraw(target,amountStake.sub(amountUser));
-                }
-            } else { // 还没在合伙人池里
-                IMining(miningPartnerContract).stake(target,amountUser);
-            }
-        } else {
-            if(amountStake > 0){ IMining(miningPartnerContract).withdraw(target,amountStake); } // 移除合伙人池
-        }
-    }
+    // 移除合伙人相关功能
 
     function updateNode(address target) private isCaller { // 更新节点
         uint amountTeam = IDB(dbContract).getTeamAmount(target);                 // 团队实时业绩
@@ -120,13 +100,9 @@ contract Tools is Comn,ITools {
 
 
     /*---------------------------------------------------管理运营-----------------------------------------------------------*/
-    uint private joinPartnerTeamAmountLimit;                                 //[设置]  加入合伙人实时团队业绩限额
-    uint private joinPartnerUserAmountLimit;                                 //[设置]  加入合伙人实时自己业绩限额
     uint private joinNodeTeamAmountLimit;                                    //[设置]  加入节点实时团队业绩限额
     uint private joinNodeUserAmountLimit;                                    //[设置]  加入节点实时自己业绩限额
-    function setConfig(uint _joinPartnerTeamAmountLimit,uint _joinPartnerUserAmountLimit,uint _joinNodeTeamAmountLimit,uint _joinNodeUserAmountLimit) public onlyOwner {
-        joinPartnerTeamAmountLimit = _joinPartnerTeamAmountLimit;
-        joinPartnerUserAmountLimit = _joinPartnerUserAmountLimit;
+    function setConfig(uint _joinNodeTeamAmountLimit,uint _joinNodeUserAmountLimit) public onlyOwner {
         joinNodeTeamAmountLimit = _joinNodeTeamAmountLimit;
         joinNodeUserAmountLimit = _joinNodeUserAmountLimit;
     }
@@ -134,13 +110,11 @@ contract Tools is Comn,ITools {
     address private dbContract;                                              //[设置]  数据库合约
     address public panel;                                                    //[设置]  面板合约
     address public factory;                                                  //[设置]  工厂合约
-    address private miningPartnerContract;                                   //[设置]  合伙人合约
     address private miningNodeContract;                                      //[设置]  节点合约
-    function setExternalContract(address _dbContract,address _panel,address _factory,address _miningPartnerContract,address _miningNodeContract) public onlyOwner {
+    function setExternalContract(address _dbContract,address _panel,address _factory,address _miningNodeContract) public onlyOwner {
         dbContract = _dbContract;
         panel = _panel;
         factory = _factory;
-        miningPartnerContract = _miningPartnerContract;
         miningNodeContract = _miningNodeContract;
     }
 }

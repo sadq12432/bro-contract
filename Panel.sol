@@ -122,7 +122,7 @@ contract Panel is IPanel,Comn{
         noticeArray[1] = IDB(dbContract).getTeamAmount(from);                                              // 团队业绩 下3代
         noticeArray[2] = IMiningLP(miningLp).getStakeUser(from);                                           // 个人矿池权重
         noticeArray[3] = IMining(miningNode).getStakeUser(from);                                           // 个人节点权重
-        noticeArray[4] = IMining(miningPartner).getStakeUser(from);                                        // 个人合伙权重
+        noticeArray[4] = 0;                                                                               // 移除合伙权重功能
         noticeArray[5] = IMiningLP(miningLp).getQuotaUser(from);                                           // 当期矿池产出额度
         noticeArray[6] = IMiningLP(miningLp).getExtractUser(from).add(IMiningLP(miningLp).earned(from));   // 当期矿池产出收益
         emit Notice(inviter,noticeArray[0],noticeArray[1],noticeArray[2],noticeArray[3],noticeArray[4],noticeArray[5],noticeArray[6]);
@@ -147,11 +147,9 @@ contract Panel is IPanel,Comn{
 
     address private miningLp;                                         // LP合约
     address private miningNode;                                       // 节点合约
-    address private miningPartner;                                    // 合伙合约
-    function setPoolContract(address _miningLp,address _miningNode,address _miningPartner) public onlyOwner {
+    function setPoolContract(address _miningLp,address _miningNode) public onlyOwner {
         miningLp = _miningLp;
         miningNode = _miningNode;
-        miningPartner = _miningPartner;
     }
 
 }

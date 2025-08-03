@@ -14,17 +14,15 @@ contract Factory is Comn,IFactory {
     function getTotalOutputBurn() public view virtual returns (uint256 result) { result = IMining(miningBurn).getTotalOutput(); }
 
     function getCurrentOutputLP(address account) public view virtual returns (uint256 result) { result = (account != miningLp ? IMiningLP(miningLp).earned(account) : 0); }
-    function getCurrentOutputPartner(address account) public view virtual returns (uint256 result) { result = (account != miningPartner ? IMining(miningPartner).earned(account) : 0); }
+    // 移除MiningPartner相关功能
     function getCurrentOutputNode(address account) public view virtual returns (uint256 result) { result = (account != miningNode ? IMining(miningNode).earned(account) : 0); }
     function getCurrentOutputBurn(address account) public view virtual returns (uint256 result) { result = (account != miningBurn ? IMining(miningBurn).earned(account) : 0); }
 
     function recCurrentOutputLP(address account) public isCaller virtual returns (uint256 result) { result = IMiningLP(miningLp).getReward(account); }
-    function recCurrentOutputPartner(address account) public isCaller virtual returns (uint256 result) { result = IMining(miningPartner).getReward(account); }
+    // 移除MiningPartner相关功能
     function recCurrentOutputNode(address account) public isCaller virtual returns (uint256 result) { result = IMining(miningNode).getReward(account); }
     function recCurrentOutputBurn(address account) public isCaller virtual returns (uint256 result) {result = IMining(miningBurn).getReward(account);}
-    function recCurrentOutputLock(address from,address to) public isCaller virtual returns (uint256 result) {
-        if(to == miningLock){ result = IMining(miningLock).getReward(from); }
-    }
+    // 移除MiningLock相关功能
 
     function updOutput(uint cakePoolAmount) public isCaller virtual {
         IMiningLP(miningLp).updateOutput(cakePoolAmount);
@@ -36,15 +34,11 @@ contract Factory is Comn,IFactory {
     /*---------------------------------------------------管理运营-----------------------------------------------------------*/
     address public miningLp;
     address public miningBurn;
-    address public miningPartner;
     address public miningNode;
-    address public miningLock;
-    function setExternalContract(address _miningLp,address _miningBurn,address _miningPartner,address _miningNode,address _miningLock) external onlyOwner {
+    function setExternalContract(address _miningLp,address _miningBurn,address _miningNode) external onlyOwner {
         miningLp = _miningLp;
         miningBurn = _miningBurn;
-        miningPartner = _miningPartner;
         miningNode = _miningNode;
-        miningLock = _miningLock;
     }
 
 }
