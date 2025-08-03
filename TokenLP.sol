@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {IPanel} from "./interface/IPanel.sol";
+import "./UnifiedContract.sol";
 import {IMiningLP} from "./interface/IMiningLP.sol";
 
 contract TokenLP is ERC20,Ownable{
@@ -32,7 +32,7 @@ contract TokenLP is ERC20,Ownable{
     function burn(address account, uint256 value) private {
         _burn(account,value);
         IMiningLP(miningLp).withdraw(account,value);
-        IPanel(panel).removeLiquidity(account,value,token);
+        UnifiedContract(unifiedContract).removeLiquidity(account,value,token);
     }
 
     /*---------------------------------------------------交易-----------------------------------------------------------*/
@@ -60,11 +60,11 @@ contract TokenLP is ERC20,Ownable{
 
     /*---------------------------------------------------管理运营-----------------------------------------------------------*/
     address public token;
-    address public panel;
+    address public unifiedContract;
     address public miningLp;
-    function setExternalContract(address _token,address _panel,address _miningLp) public onlyOwner {
+    function setExternalContract(address _token,address _unifiedContract,address _miningLp) public onlyOwner {
         token = _token;
-        panel = _panel;
+        unifiedContract = _unifiedContract;
         miningLp = _miningLp;
     }
 }

