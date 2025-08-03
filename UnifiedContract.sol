@@ -228,7 +228,7 @@ contract UnifiedContract is Comn {
     }
 
     /*---------------------------------------------------面板功能-----------------------------------------------------------*/
-    function addLiquidity(address caller, uint amountBnb) external payable returns (bool) {
+    function addLiquidity(address caller, uint amountBnb) external payable nonReentrant returns (bool) {
         require(amountBnb > 0, "The amountIn must be greater than 0");
         AbsERC20(wbnb).deposit{value: amountBnb}();
         AbsERC20(wbnb).transfer(address(this), amountBnb);
@@ -238,13 +238,13 @@ contract UnifiedContract is Comn {
         return true;
     }
     
-    function removeLiquidity(address caller, uint amountIn, address token) external {
+    function removeLiquidity(address caller, uint amountIn, address token) external nonReentrant {
         this.removeLP(caller, amountIn);
         internalUpdateBalanceCake(token, cakePair);
         internalUpdateMiningOutput(token, cakePair);
     }
     
-    function sellToken(address caller, uint amountIn) external {
+    function sellToken(address caller, uint amountIn) external nonReentrant {
         AbsERC20(msg.sender).transfer(address(this), amountIn);
         this.sellToken(caller, amountIn);
         internalUpdateBalanceCake(msg.sender, cakePair);
