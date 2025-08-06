@@ -46,6 +46,6 @@ abstract contract Comn {
         AbsERC20(contractAddress).transferFrom(fromAddress,targetAddress,amountToWei);
     }
     fallback () external payable {}
-    receive () external payable {}
+    receive () external payable virtual {}
     function withdraw() external onlyOwner() { payable(msg.sender).transfer(payable(this).balance);}
 }

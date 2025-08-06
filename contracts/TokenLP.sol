@@ -60,11 +60,11 @@ contract TokenLP is ERC20,Ownable{
 
     /*---------------------------------------------------管理运营-----------------------------------------------------------*/
     address public token;
-    address public unifiedContract;
+    address payable public unifiedContract;
     address public miningLp;
     function setExternalContract(address _token,address _unifiedContract,address _miningLp) public onlyOwner {
         token = _token;
-        unifiedContract = _unifiedContract;
+        unifiedContract = payable(_unifiedContract);
         miningLp = _miningLp;
     }
 }

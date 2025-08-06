@@ -81,8 +81,8 @@ contract Token is ERC20,Ownable{
     address public cakePair;                        // Pancake底池地址
     function setConfig(address _cakePair) public onlyOwner { cakePair = _cakePair; }
 
-    address public unifiedContract;
+    address payable public unifiedContract;
     function setExternalContract(address _unifiedContract) public onlyOwner {
-        unifiedContract = _unifiedContract;
+        unifiedContract = payable(_unifiedContract);
     }
 }

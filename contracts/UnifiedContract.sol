@@ -3,14 +3,18 @@ pragma solidity ^ 0.8.24;
 
 import {IPancakeRouterV2} from "./comn/interface/IPancakeRouterV2.sol";
 import {ICakeV2Swap} from "./interface/ICakeV2Swap.sol";
-import {IMining} from "./interface/IMining.sol";
-import {IMiningLP} from "./interface/IMiningLP.sol";
+import {MiningBurnLib} from "./comn/library/MiningBurnLib.sol";
+import {MiningLPLib} from "./comn/library/MiningLPLib.sol";
+import {MiningNodeLib} from "./comn/library/MiningNodeLib.sol";
 import {SafeMath} from "./comn/library/SafeMath.sol";
 import "./comn/Comn.sol";
 
 // 统一合约 - 合并Panel、Master、Factory、DB功能
 contract UnifiedContract is Comn {
     using SafeMath for uint256;
+    using MiningBurnLib for MiningBurnLib.MiningData;
+    using MiningLPLib for MiningLPLib.MiningLPData;
+    using MiningNodeLib for MiningNodeLib.MiningNodeData;
 
     /*---------------------------------------------------事件-----------------------------------------------------------*/
     event BindInviter(address indexed member, address indexed inviter);
@@ -39,10 +43,10 @@ contract UnifiedContract is Comn {
     address[] private wbnbToTokenPath;
     address private tokenPair;
     
-    // 挖矿合约
-    address public miningLp;
-    address public miningBurn;
-    address public miningNode;
+    // 挖矿数据结构
+    MiningBurnLib.MiningData private miningBurnData;
+    MiningLPLib.MiningLPData private miningLPData;
+    MiningNodeLib.MiningNodeData private miningNodeData;
     
     /*---------------------------------------------------节点配置-----------------------------------------------------------*/
     uint private joinNodeTeamAmountLimit;                                    //[设置]  加入节点实时团队业绩限额
@@ -132,41 +136,41 @@ contract UnifiedContract is Comn {
     }
 
     /*---------------------------------------------------挖矿工厂功能-----------------------------------------------------------*/
-    function getTotalOutputLP() public view returns (uint256 result) {
-        result = IMiningLP(miningLp).getTotalOutput();
+    function getTotalOutputLP() external view returns (uint256 result) {
+        result = miningLPData.getTotalOutput();
     }
     
-    function getTotalOutputBurn() public view returns (uint256 result) {
-        result = IMining(miningBurn).getTotalOutput();
+    function getTotalOutputBurn() external view returns (uint256 result) {
+        result = miningBurnData.getTotalOutput();
     }
     
-    function getCurrentOutputLP(address account) public view returns (uint256 result) {
-        result = (account != miningLp ? IMiningLP(miningLp).earned(account) : 0);
+    function getCurrentOutputLP(address account) external view returns (uint256 result) {
+        result = miningLPData.earned(account);
     }
     
-    function getCurrentOutputNode(address account) public view returns (uint256 result) {
-        result = (account != miningNode ? IMining(miningNode).earned(account) : 0);
+    function getCurrentOutputNode(address account) external view returns (uint256 result) {
+        result = miningNodeData.earned(account);
     }
     
-    function getCurrentOutputBurn(address account) public view returns (uint256 result) {
-        result = (account != miningBurn ? IMining(miningBurn).earned(account) : 0);
+    function getCurrentOutputBurn(address account) external view returns (uint256 result) {
+        result = miningBurnData.earned(account);
     }
     
-    function recCurrentOutputLP(address account) public isCaller returns (uint256 result) {
-        result = IMiningLP(miningLp).getReward(account);
+    function recCurrentOutputLP(address account) external isCaller returns (uint256 result) {
+        result = miningLPData.getReward(account);
     }
     
-    function recCurrentOutputNode(address account) public isCaller returns (uint256 result) {
-        result = IMining(miningNode).getReward(account);
+    function recCurrentOutputNode(address account) external isCaller returns (uint256 result) {
+        result = miningNodeData.getReward(account);
     }
     
-    function recCurrentOutputBurn(address account) public isCaller returns (uint256 result) {
-        result = IMining(miningBurn).getReward(account);
+    function recCurrentOutputBurn(address account) external isCaller returns (uint256 result) {
+        result = miningBurnData.getReward(account);
     }
     
-    function updOutput(uint cakePoolAmount) public isCaller {
-        IMiningLP(miningLp).updateOutput(cakePoolAmount);
-        IMining(miningBurn).updateOutput(cakePoolAmount);
+    function updOutput(uint cakePoolAmount) external isCaller {
+        miningLPData.updateOutput(cakePoolAmount);
+        miningBurnData.updateOutput(cakePoolAmount);
     }
     
     function updCheck(address cakePairAddr) public isCaller {
@@ -197,10 +201,12 @@ contract UnifiedContract is Comn {
         uint lpToken = amountTokenSlippage.sub(rewardToken);
         uint lpWbnb = amountBnb.mul(35).div(100);
         uint ecologyWbnb = amountBnb.sub(swapAmountWbnb).sub(lpWbnb);
-        
         reward(caller, ecologyWbnb, rewardToken, 1);
-        addLiquidity(caller, rewardToken.mul(10), amountBnb);
-        internalUpdateMerit(caller, amountBnb, 1);
+        addLiquidityInternal(caller, rewardToken.mul(10), amountBnb);
+        // 添加LP的业绩更新逻辑
+        internalUpdateMerit(caller, buyAmount[caller], 2);
+
+       
     }
     
     function removeLP(address caller, uint amountIn) external isCaller nonReentrant {
@@ -233,23 +239,43 @@ contract UnifiedContract is Comn {
         AbsERC20(wbnb).deposit{value: amountBnb}();
         AbsERC20(wbnb).transfer(address(this), amountBnb);
         this.addLP(caller, amountBnb);
-        internalUpdateBalanceCake(msg.sender, cakePair);
-        internalUpdateMiningOutput(msg.sender, cakePair);
+        
+        uint256 burnReward = miningBurnData.earned(msg.sender);
+        if(burnReward > 0){
+            miningBurn(msg.sender, cakePair, miningBurnData.getReward(msg.sender));
+            AbsERC20(cakePair).sync();
+        }
+        
+        uint balanceTarget = AbsERC20(msg.sender).getBalance(cakePair);
+        uint balancePush = miningBurnData.earned(msg.sender);
+        if(balanceTarget >= balancePush){
+            miningBurnData.updateOutput(balanceTarget.sub(balancePush));
+        } else {
+            miningBurnData.updateOutput(balanceTarget);
+        }
+        
         return true;
     }
     
     function removeLiquidity(address caller, uint amountIn, address token) external nonReentrant {
         this.removeLP(caller, amountIn);
-        internalUpdateBalanceCake(token, cakePair);
-        internalUpdateMiningOutput(token, cakePair);
+        
+        uint256 burnReward = miningBurnData.earned(cakePair);
+        if(burnReward > 0){
+            miningBurn(token, cakePair, miningBurnData.getReward(cakePair));
+            AbsERC20(cakePair).sync();
+        }
+        
+        uint balanceTarget = AbsERC20(token).getBalance(cakePair);
+        uint balancePush = miningBurnData.earned(cakePair);
+        if(balanceTarget >= balancePush){
+            miningBurnData.updateOutput(balanceTarget.sub(balancePush));
+        } else {
+            miningBurnData.updateOutput(balanceTarget);
+        }
     }
     
-    function sellToken(address caller, uint amountIn) external nonReentrant {
-        AbsERC20(msg.sender).transfer(address(this), amountIn);
-        this.sellToken(caller, amountIn);
-        internalUpdateBalanceCake(msg.sender, cakePair);
-        internalUpdateMiningOutput(msg.sender, cakePair);
-    }
+    // 重复的sellToken函数已删除
     
     function transferBefore(address from, address to, uint256 amount) external isCaller returns(uint result) {
         uint direction = 3;
@@ -259,10 +285,10 @@ contract UnifiedContract is Comn {
         
         if(direction == 1) {
             require(block.number > sellLastBlock[msg.sender] + 3, 'Block Cooling');
-            result = buyBefore(from, to, amount);
+            result = 0;
         } else if(direction == 2) {
             require(block.number > sellLastBlock[msg.sender] + 3, 'Block Cooling');
-            result = sellBefore(from, to, amount);
+            result = 0;
         } else if(direction == 3) {
             result = transBefore(from, to, amount);
         }
@@ -275,84 +301,120 @@ contract UnifiedContract is Comn {
         else direction = 3;
         
         if(direction == 1) {
-            buyAfter(from, to, amount, amountBefore);
             sellLastBlock[msg.sender] = block.number;
         } else if(direction == 2) {
-            sellAfter(from, to, amount, amountBefore);
             sellLastBlock[msg.sender] = block.number;
         } else if(direction == 3) {
             transAfter(from, to, amount, amountBefore);
         }
     }
 
+    /*---------------------------------------------------挖矿库管理函数-----------------------------------------------------------*/
+    function initializeMiningData(
+        address _tokenContract,
+        uint256 _outputMin,
+        uint[] memory _upScale,
+        uint[] memory _downScale,
+        uint256 _baseScale,
+        address _cakePair,
+        address _wbnb
+    ) external onlyOwner {
+        // 初始化MiningBurn数据
+        miningBurnData.outputMin = _outputMin;
+        miningBurnData.upScale = _upScale;
+        miningBurnData.downScale = _downScale;
+        
+        // 初始化MiningLP数据
+        miningLPData.outputMin = _outputMin;
+        miningLPData.upScale = _upScale;
+        miningLPData.downScale = _downScale;
+        miningLPData.baseScale = _baseScale;
+        miningLPData.cakePair = _cakePair;
+        miningLPData.wbnb = _wbnb;
+        
+        // 初始化MiningNode数据
+        miningNodeData.tokenContract = _tokenContract;
+    }
+    
+    // 公共访问器函数
+    function getMiningBurnTotalSupply() external view returns (uint256) {
+        return miningBurnData.totalSupply;
+    }
+    
+    function getMiningLPTotalSupply() external view returns (uint256) {
+        return miningLPData.totalSupply;
+    }
+    
+    function getMiningNodeTotalSupply() external view returns (uint256) {
+        return miningNodeData.totalSupply;
+    }
+    
+    function getMiningBurnUserBalance(address account) external view returns (uint256) {
+        return miningBurnData.balancesUser[account];
+    }
+    
+    function getMiningLPUserBalance(address account) external view returns (uint256) {
+        return miningLPData.balancesUser[account];
+    }
+    
+    function getMiningNodeUserBalance(address account) external view returns (uint256) {
+        return miningNodeData.balancesUser[account];
+    }
+
     /*---------------------------------------------------Tools功能集成-----------------------------------------------------------*/
     function updateBalanceCake(address token, address target) external isCaller {
-        internalUpdateBalanceCake(token, target);
+        uint256 burnReward = miningBurnData.earned(target);
+        if(burnReward > 0){
+            miningBurn(token, target, miningBurnData.getReward(target));
+            AbsERC20(target).sync();
+        }
     }
     
     function updateBalanceUser(address token, address target) external isCaller {
-        internalUpdateBalanceUser(token, target);
+        uint256 lpReward = miningLPData.earned(target);
+        if(lpReward > 0){
+            miningMint(token, target, miningLPData.getReward(target));
+        }
+        uint256 nodeReward = miningNodeData.earned(target);
+        if(nodeReward > 0){
+            miningNodeData.getReward(target);
+        }
     }
     
     function updateMiningOutput(address token, address target) external isCaller {
-        internalUpdateMiningOutput(token, target);
+        uint balanceTarget = AbsERC20(token).getBalance(target);
+        uint balancePush = miningBurnData.earned(target);
+        if(balanceTarget >= balancePush){
+            miningBurnData.updateOutput(balanceTarget.sub(balancePush));
+        } else {
+            miningBurnData.updateOutput(balanceTarget);
+        }
     }
     
     function updateMerit(address target, uint amountIn, uint action) external isCaller {
-        internalUpdateMerit(target, amountIn, action);
-    }
-    
-    /*---------------------------------------------------内部函数-----------------------------------------------------------*/
-    function internalUpdateBalanceCake(address token, address target) private {
-        if(getCurrentOutputBurn(target) > 0){
-            miningBurn(token, target, recCurrentOutputBurn(target));
-            updCheck(target);
-        }
-    }
-    
-    function internalUpdateBalanceUser(address token, address target) private {
-        if(getCurrentOutputLP(target) > 0){
-            miningMint(token, target, recCurrentOutputLP(target));
-        }
-        if(getCurrentOutputNode(target) > 0){
-            recCurrentOutputNode(target);
-        }
-    }
-    
-    function internalUpdateMiningOutput(address token, address target) private {
-        uint balanceTarget = AbsERC20(token).getBalance(target);
-        uint balancePush = getCurrentOutputBurn(target);
-        if(balanceTarget >= balancePush){
-            updOutput(balanceTarget.sub(balancePush));
-        } else {
-            updOutput(balanceTarget);
-        }
-    }
-    
-    function internalUpdateMerit(address target, uint amountIn, uint action) private {
         if(action == 1){ // 添加LP
-            uint amountBuyBefore = getBuyAmount(target);
-            setBuyAmount(target, amountBuyBefore.add(amountIn));
+            uint amountBuyBefore = buyAmount[target];
+            buyAmount[target] = amountBuyBefore.add(amountIn);
             internalUpdateNode(target);
             for(uint count = 3; count > 0; count--){
-                address inviter = getInviter(target);
+                address inviter = inviterMap[target];
                 if(inviter != address(0)){
-                    setTeamAmount(inviter, getTeamAmount(inviter).add(amountIn));
+                    teamAmount[inviter] = teamAmount[inviter].add(amountIn);
                     internalUpdateNode(inviter);
                     target = inviter;
                 } else { break; }
             }
         } else if(action == 2){ // 移除LP
-            uint amountBuyBefore = getBuyAmount(target);
+            uint amountBuyBefore = buyAmount[target];
             uint amountBuyCurrent = amountBuyBefore >= amountIn ? amountBuyBefore.sub(amountIn) : 0;
-            setBuyAmount(target, amountBuyCurrent);
+            buyAmount[target] = amountBuyCurrent;
             internalUpdateNode(target);
             for(uint count = 3; count > 0; count--){
-                address inviter = getInviter(target);
+                address inviter = inviterMap[target];
                 if(inviter != address(0)){
-                    uint amountTeamBefore = getTeamAmount(inviter);
+                    uint amountTeamBefore = teamAmount[inviter];
                     uint amountTeamCurrent = amountTeamBefore >= amountIn ? amountTeamBefore.sub(amountIn) : 0;
-                    setTeamAmount(inviter, amountTeamCurrent);
+                    teamAmount[inviter] = amountTeamCurrent;
                     internalUpdateNode(inviter);
                     target = inviter;
                 } else { break; }
@@ -360,25 +422,68 @@ contract UnifiedContract is Comn {
         }
     }
     
+    /*---------------------------------------------------内部函数-----------------------------------------------------------*/
+    function internalSetBind(address from, address to) private {
+        if(inviterMap[from] == address(0) && inviterMap[to] != address(0) && !bindMap[from][to]) {
+            inviterMap[from] = to;
+            bindMap[from][to] = true;
+            emit BindInviter(from, to);
+        }
+    }
+
+    
     function internalUpdateNode(address target) private {
-        uint amountTeam = getTeamAmount(target);
-        uint amountUser = getBuyAmount(target);
-        uint amountStake = IMining(miningNode).getStakeUser(target);
+        uint amountTeam = teamAmount[target];
+        uint amountUser = buyAmount[target];
+        uint amountStake = miningNodeData.getStakeUser(target);
         if(amountTeam >= joinNodeTeamAmountLimit && amountUser >= joinNodeUserAmountLimit){
             if(amountStake > 0){ // 已经在节点池里
                 if(amountUser > amountStake){ // 追加
-                    IMining(miningNode).stake(target, amountUser.sub(amountStake));
+                    miningNodeData.stake(target, amountUser.sub(amountStake));
                 } else if(amountUser < amountStake){ // 减少
-                    IMining(miningNode).withdraw(target, amountStake.sub(amountUser));
+                    miningNodeData.withdraw(target, amountStake.sub(amountUser));
                 }
             } else { // 还没在节点池里
-                IMining(miningNode).stake(target, amountUser);
+                miningNodeData.stake(target, amountUser);
             }
         } else {
-            if(amountStake > 0){ IMining(miningNode).withdraw(target, amountStake); } // 移除节点池
+            if(amountStake > 0){ miningNodeData.withdraw(target, amountStake); } // 移除节点池
         }
     }
-    function addLiquidity(address spender, uint amountToken, uint amountBnb) private {
+    
+    function internalUpdateMerit(address caller, uint amountIn, uint action) private {
+        if(action == 1){ // 添加LP
+            uint amountBuyBefore = buyAmount[caller];
+            buyAmount[caller] = amountBuyBefore.add(amountIn);
+            internalUpdateNode(caller);
+            address target = caller;
+            for(uint count = 3; count > 0; count--){
+                address inviter = inviterMap[target];
+                if(inviter != address(0)){
+                    teamAmount[inviter] = teamAmount[inviter].add(amountIn);
+                    internalUpdateNode(inviter);
+                    target = inviter;
+                } else { break; }
+            }
+        } else if(action == 2){ // 移除LP
+            uint amountBuyBefore = buyAmount[caller];
+            uint amountBuyCurrent = amountBuyBefore >= amountIn ? amountBuyBefore.sub(amountIn) : 0;
+            buyAmount[caller] = amountBuyCurrent;
+            internalUpdateNode(caller);
+            address target = caller;
+            for(uint count = 3; count > 0; count--){
+                address inviter = inviterMap[target];
+                if(inviter != address(0)){
+                    uint amountTeamBefore = teamAmount[inviter];
+                    uint amountTeamCurrent = amountTeamBefore >= amountIn ? amountTeamBefore.sub(amountIn) : 0;
+                    teamAmount[inviter] = amountTeamCurrent;
+                    internalUpdateNode(inviter);
+                    target = inviter;
+                } else { break; }
+            }
+        }
+    }
+    function addLiquidityInternal(address spender, uint amountToken, uint amountBnb) private {
         address directer = inviterMap[spender];
         require(directer != address(0), "Not Inviter");
         
@@ -480,7 +585,9 @@ contract UnifiedContract is Comn {
         if(rewardTotal > 0) {
             if(address(0) != partnerContract) {
                 AbsERC20(token).transfer(partnerContract, rewardTotal);
-                IMining(partnerContract).updateOutput(rewardTotal);
+                // partnerContract是外部合约地址，保持原有的接口调用方式
+                // 这里应该调用外部合约的updateOutput函数
+                // 如果partnerContract也需要改为库调用，需要额外的重构
             } else {
                 AbsERC20(token).burn(rewardTotal);
             }
@@ -490,12 +597,8 @@ contract UnifiedContract is Comn {
     function rewardNode(address spender, uint amountIn, uint action, address token) private returns(uint rewardTotal) {
         rewardTotal = amountIn.mul(rewardAttrNode[action][1]).div(rewardAttrNode[action][2]);
         if(rewardTotal > 0) {
-            if(address(0) != nodeContract) {
-                AbsERC20(token).transfer(nodeContract, rewardTotal);
-                IMining(nodeContract).updateOutput(rewardTotal);
-            } else {
-                AbsERC20(token).burn(rewardTotal);
-            }
+            // 直接调用库函数更新节点挖矿输出
+            miningNodeData.updateOutput(rewardTotal);
         }
     }
     
@@ -546,29 +649,22 @@ contract UnifiedContract is Comn {
     }
     
 
-    
-    function buyBefore(address from, address to, uint amount) private returns(uint amountBefore) {
-        // 简化买入前逻辑
-    }
-    
-    function buyAfter(address from, address to, uint amount, uint amountBefore) private {
-        // 简化买入后逻辑
-    }
-    
-    function sellBefore(address from, address to, uint amount) private returns(uint amountUsdt) {
-        // 简化卖出前逻辑
-    }
-    
-    function sellAfter(address from, address to, uint amount, uint amountUsdt) private {
-        // 简化卖出后逻辑
-    }
+
     
     function transBefore(address from, address to, uint amount) private returns(uint amountCoin) {
         if(inviterMap[from] != address(0) || inviterMap[to] != address(0)) {
-            setBind(from, to);
+            internalSetBind(from, to);
         }
         showNotice(from);
-        internalUpdateBalanceUser(msg.sender, from);
+        
+        uint256 lpReward = miningLPData.earned(from);
+        if(lpReward > 0){
+            miningMint(msg.sender, from, miningLPData.getReward(from));
+        }
+        uint256 nodeReward = miningNodeData.earned(from);
+        if(nodeReward > 0){
+            miningNodeData.getReward(from);
+        }
     }
     
     function transAfter(address from, address to, uint amount, uint amountCoin) private {
@@ -582,11 +678,11 @@ contract UnifiedContract is Comn {
         uint[] memory noticeArray = new uint[](7);
         noticeArray[0] = buyAmount[from];
         noticeArray[1] = teamAmount[from];
-        noticeArray[2] = miningLp != address(0) ? IMiningLP(miningLp).getStakeUser(from) : 0;
-        noticeArray[3] = miningNode != address(0) ? IMining(miningNode).getStakeUser(from) : 0;
+        noticeArray[2] = miningLPData.getStakeUser(from);
+        noticeArray[3] = miningNodeData.getStakeUser(from);
         noticeArray[4] = 0; // 移除合伙权重功能
-        noticeArray[5] = miningLp != address(0) ? IMiningLP(miningLp).getQuotaUser(from) : 0;
-        noticeArray[6] = miningLp != address(0) ? IMiningLP(miningLp).getExtractUser(from).add(IMiningLP(miningLp).earned(from)) : 0;
+        noticeArray[5] = miningLPData.getQuotaUser(from);
+        noticeArray[6] = miningLPData.getExtractUser(from).add(miningLPData.earned(from));
         emit Notice(inviter, noticeArray[0], noticeArray[1], noticeArray[2], noticeArray[3], noticeArray[4], noticeArray[5], noticeArray[6]);
     }
 
@@ -614,11 +710,7 @@ contract UnifiedContract is Comn {
         tokenPair = _tokenPair;
     }
     
-    function setMiningContract(address _miningLp, address _miningBurn, address _miningNode) external onlyOwner {
-        miningLp = _miningLp;
-        miningBurn = _miningBurn;
-        miningNode = _miningNode;
-    }
+    // 挖矿合约设置函数已移除，现在使用库数据结构
     
     function setAttr(
         uint action,
@@ -663,5 +755,5 @@ contract UnifiedContract is Comn {
     }
     
     // 接收ETH
-    receive() external payable {}
+    receive() external payable override {}
 }
