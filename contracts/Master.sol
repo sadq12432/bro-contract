@@ -1,0 +1,737 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+pragma solidity ^ 0.8.24;
+
+// 导入PancakeSwap路由器接口
+import {IPancakeRouterV2} from "./comn/interface/IPancakeRouterV2.sol";
+// 导入自定义交换合约接口
+import {ICakeV2Swap} from "./interface/ICakeV2Swap.sol";
+// 导入挖矿销毁库
+import {MiningBurnLib} from "./comn/library/MiningBurnLib.sol";
+// 导入LP挖矿库
+import {MiningLPLib} from "./comn/library/MiningLPLib.sol";
+// 导入节点挖矿库
+import {MiningNodeLib} from "./comn/library/MiningNodeLib.sol";
+// 导入安全数学库
+import {SafeMath} from "./comn/library/SafeMath.sol";
+// 导入通用合约基类
+import "./comn/Comn.sol";
+
+/**
+ * @title Master
+ * @dev 统一合约 - 合并Panel、Master、Factory、DB功能
+ * 这是一个综合性的DeFi合约，包含推荐关系管理、挖矿功能、流动性管理等核心功能
+ */
+contract Master is Comn {
+    // 使用SafeMath库进行安全的数学运算
+    using SafeMath for uint256;
+    // 使用挖矿销毁库
+    using MiningBurnLib for MiningBurnLib.MiningData;
+    // 使用LP挖矿库
+    using MiningLPLib for MiningLPLib.MiningLPData;
+    // 使用节点挖矿库
+    using MiningNodeLib for MiningNodeLib.MiningNodeData;
+
+    /*---------------------------------------------------事件定义-----------------------------------------------------------*/
+    
+    /**
+     * @dev 绑定推荐人事件
+     * @param member 被推荐人地址
+     * @param inviter 推荐人地址
+     */
+    event BindInviter(address indexed member, address indexed inviter);
+    
+    /**
+     * @dev 通知事件，用于前端显示用户数据
+     * @param inviter 推荐人地址
+     * @param personal 个人业绩
+     * @param team 团队业绩
+     * @param lpWeight LP权重
+     * @param nodeWeight 节点权重
+     * @param partnerWeight 合伙人权重
+     * @param lpQuota LP配额
+     * @param lpReward LP奖励
+     */
+    event Notice(address indexed inviter, uint personal, uint team, uint lpWeight, uint nodeWeight, uint partnerWeight, uint lpQuota, uint lpReward);
+
+    /*---------------------------------------------------数据存储-----------------------------------------------------------*/
+    
+    // 推荐关系管理
+    mapping(address => address) private inviterMap;  // 用户 => 推荐人地址映射
+    mapping(address => mapping(address => bool)) private bindMap;  // 双向绑定确认映射
+    
+
+    
+
+    
+    // 交易记录管理
+    mapping(address => uint) private sellLastBlock;  // 用户最后卖出区块号，用于冷却限制
+    
+    /*---------------------------------------------------外部合约地址-----------------------------------------------------------*/
+    
+    address private cakeV2SwapContract;  // CakeV2交换合约地址
+    address private tokenContract;       // 项目代币合约地址
+    address private tokenLpContract;     // LP代币合约地址
+
+    address public cakePair;             // Cake交易对地址
+    address[] private tokenToWbnbPath;   // 代币到WBNB的交换路径
+    address[] private wbnbToTokenPath;   // WBNB到代币的交换路径
+    address private tokenPair;           // 代币交易对地址
+    
+    // 挖矿数据结构实例
+    MiningBurnLib.MiningData private miningBurnData;      // 销毁挖矿数据
+    MiningLPLib.MiningLPData private miningLPData;        // LP挖矿数据
+    MiningNodeLib.MiningNodeData private miningNodeData;  // 节点挖矿数据
+    
+    /*---------------------------------------------------节点配置-----------------------------------------------------------*/
+    
+    uint private joinNodeTeamAmountLimit;  // 加入节点所需的团队业绩限额
+    uint private joinNodeUserAmountLimit;  // 加入节点所需的个人业绩限额
+    
+    /*---------------------------------------------------奖励配置-----------------------------------------------------------*/
+
+    
+    /*---------------------------------------------------推荐关系管理-----------------------------------------------------------*/
+    
+    /**
+     * @dev 获取用户的推荐人地址
+     * @param caller 查询的用户地址
+     * @return inviter 推荐人地址，如果没有推荐人则返回零地址
+     */
+    function getInviter(address caller) external view returns (address inviter) {
+        inviter = inviterMap[caller];  // 返回推荐人地址
+    }
+    
+    /**
+     * @dev 检查用户是否有推荐人
+     * @param caller 查询的用户地址
+     * @return flag 如果有推荐人返回true，否则返回false
+     */
+    function isInviter(address caller) external view returns (bool flag) {
+        inviterMap[caller] == address(0) ? flag = false : flag = true;  // 检查推荐人是否存在
+    }
+    
+    /**
+     * @dev 设置双向绑定关系，需要双方都确认才能建立推荐关系
+     * @param from 被推荐人地址
+     * @param to 推荐人地址
+     * 只有当双方都确认绑定且满足条件时，才会建立推荐关系
+     */
+    function setBind(address from, address to) external isCaller {
+        // 检查地址有效性，排除无效地址和自引用
+        if(from == address(0) || from == address(this) || to == address(0) || to == address(this) || from == to || from == msg.sender || to == msg.sender) return;
+        
+        // 只有当其中一方已有推荐关系时才能进行绑定
+        if(inviterMap[from] != address(0) || inviterMap[to] != address(0)) {
+            if(!bindMap[from][to]) {
+                bindMap[from][to] = true;  // 设置from到to的绑定确认
+                // 检查是否双向确认
+                if(bindMap[to][from]) {
+                    if(inviterMap[to] == address(0)) return;  // to必须没有推荐人
+                    if(inviterMap[from] != address(0)) return;  // from必须已有推荐人
+                    inviterMap[from] = to;  // 建立推荐关系
+                    emit BindInviter(from, to);  // 触发绑定事件
+                }
+            }
+        }
+    }
+    
+    /**
+     * @dev 管理员导入单个推荐关系
+     * @param _member 被推荐人地址
+     * @param _inviter 推荐人地址
+     * @return 操作是否成功
+     */
+    function importSingle(address _member, address _inviter) external onlyOwner returns (bool) {
+        require(_member != address(0) && _inviter != address(0), "Invalid address");
+        inviterMap[_member] = _inviter;  // 直接设置推荐关系
+        return true;
+    }
+    
+    /**
+     * @dev 管理员批量导入推荐关系
+     * @param _memberArray 被推荐人地址数组
+     * @param _inviterArray 推荐人地址数组
+     * @return 操作是否成功
+     */
+    function importMulti(address[] memory _memberArray, address[] memory _inviterArray) external onlyOwner returns (bool) {
+        require(_memberArray.length != 0 && _memberArray.length == _inviterArray.length, "Invalid arrays");
+        // 批量设置推荐关系
+        for(uint i = 0; i < _memberArray.length; i++) {
+            inviterMap[_memberArray[i]] = _inviterArray[i];
+        }
+        return true;
+    }
+
+
+    
+  
+   
+    
+
+  
+
+    /*---------------------------------------------------交易记录-----------------------------------------------------------*/
+    /**
+     * @dev 获取用户最后卖出区块号
+     * @param coin 查询的用户地址
+     * @return blockNumber 用户最后一次卖出操作的区块号
+     */
+    function getSellLastBlock(address coin) external view returns (uint blockNumber) {
+        blockNumber = sellLastBlock[coin];  // 返回最后卖出区块号
+    }
+    
+    /**
+     * @dev 设置用户最后卖出区块号
+     * @param coin 目标用户地址
+     * @param blockNumber 要设置的区块号
+     * 只有授权调用者可以设置用户的最后卖出区块号，用于冷却限制
+     */
+    function setSellLastBlock(address coin, uint blockNumber) external isCaller {
+        sellLastBlock[coin] = blockNumber;  // 设置最后卖出区块号
+    }
+
+    /*---------------------------------------------------挖矿工厂功能-----------------------------------------------------------*/
+    /**
+     * @dev 获取LP挖矿总产出
+     * @return result LP挖矿总供应量
+     */
+    function getMiningLPOutput() external view returns (uint256 result) {
+        result = miningLPData.getTotalSupply();
+    }
+    
+    /**
+     * @dev 获取销毁挖矿总产出
+     * @return result 销毁挖矿总产出量
+     */
+    function getTotalOutputBurn() external view returns (uint256 result) {
+        result = miningBurnData.getTotalOutput();
+    }
+    
+    /**
+     * @dev 获取用户LP挖矿奖励
+     * @param account 用户地址
+     * @return result 用户可领取的LP挖矿奖励
+     */
+    function getMiningLPReward(address account) external view returns (uint256 result) {
+        result = miningLPData.earned(account);
+    }
+    
+    /**
+     * @dev 获取用户当前节点挖矿产出
+     * @param account 用户地址
+     * @return result 用户当前节点挖矿收益
+     */
+    function getCurrentOutputNode(address account) external view returns (uint256 result) {
+        result = miningNodeData.earned(account);
+    }
+    
+    /**
+     * @dev 获取用户当前销毁挖矿产出
+     * @param account 用户地址
+     * @return result 用户当前销毁挖矿收益
+     */
+    function getCurrentOutputBurn(address account) external view returns (uint256 result) {
+        result = miningBurnData.earned(account);
+    }
+    
+    /**
+     * @dev 提取用户LP挖矿奖励
+     * @param account 用户地址
+     * @return result 提取的LP挖矿奖励数量
+     */
+    function getMiningLPWithdraw(address account) external isCaller returns (uint256 result) {
+        result = miningLPData.getReward(account);
+    }
+    
+    /**
+     * @dev 领取用户节点挖矿产出
+     * @param account 用户地址
+     * @return result 领取的节点挖矿奖励数量
+     */
+    function recCurrentOutputNode(address account) external isCaller returns (uint256 result) {
+        result = miningNodeData.getReward(account);
+    }
+    
+    /**
+     * @dev 领取用户销毁挖矿产出
+     * @param account 用户地址
+     * @return result 领取的销毁挖矿奖励数量
+     */
+    function recCurrentOutputBurn(address account) external isCaller returns (uint256 result) {
+        result = miningBurnData.getReward(account);
+    }
+    
+    /**
+     * @dev 更新LP挖矿产出（简化版本）
+     * @param cakePoolAmount Cake池数量
+     */
+    function updateMiningLPOutput(uint cakePoolAmount) external isCaller {
+        // 简化版本不需要动态更新产出
+    }
+    
+    /**
+     * @dev 更新销毁挖矿产出
+     * @param cakePoolAmount Cake池数量
+     */
+    function updOutput(uint cakePoolAmount) external isCaller {
+        // 简化版本不需要动态更新产出
+        miningBurnData.updateOutput(cakePoolAmount);
+    }
+    
+    /**
+     * @dev 更新检查并同步交易对
+     * @param cakePairAddr Cake交易对地址
+     */
+    function updCheck(address cakePairAddr) public isCaller {
+        AbsERC20(cakePairAddr).sync();
+    }
+    
+    /**
+     * @dev 挖矿铸造代币
+     * @param token 代币合约地址
+     * @param target 目标用户地址
+     * @param amount 铸造数量
+     * 为指定用户铸造代币作为挖矿奖励
+     */
+    function miningMint(address token, address target, uint amount) public isCaller {
+        if(amount > 0) {
+            AbsERC20(token).miningMint(target, amount);  // 为用户铸造代币
+        }
+    }
+    
+    /**
+     * @dev 挖矿销毁代币
+     * @param token 代币合约地址
+     * @param target 目标用户地址
+     * @param amount 销毁数量
+     * 销毁指定数量的代币，用于通缩机制
+     */
+    function miningBurn(address token, address target, uint amount) public isCaller {
+        if(amount > 0) {
+            AbsERC20(token).miningBurn(target, amount);  // 销毁代币
+        }
+    }
+
+    /*---------------------------------------------------主要业务逻辑-----------------------------------------------------------*/
+    /**
+     * @dev 添加流动性挖矿
+     * @param caller 调用者地址
+     * @param amountBnb BNB数量
+     * 将BNB按比例分配：45%用于交换代币，35%用于添加流动性，20%用于生态奖励
+     */
+    function addLP(address caller, uint amountBnb) external isCaller nonReentrant {
+        require(amountBnb > 0, "Amount must be greater than 0");  // 检查BNB数量有效性
+        
+        uint swapAmountWbnb = amountBnb.mul(45).div(100);  // 45%用于交换代币
+        AbsERC20(wbnb).transfer(cakeV2SwapContract, swapAmountWbnb);  // 转账到交换合约
+        (uint amountTokenSwap, uint amountTokenSlippage) = ICakeV2Swap(cakeV2SwapContract).swapWbnbToToken(swapAmountWbnb, address(this), wbnbToTokenPath, tokenPair, address(0));  // 执行代币交换
+        
+        uint rewardToken = amountTokenSlippage.mul(10).div(45);  // 计算奖励代币数量
+        uint lpToken = amountTokenSlippage.sub(rewardToken);  // 计算LP代币数量
+        uint lpWbnb = amountBnb.mul(35).div(100);  // 35%用于添加流动性
+        uint ecologyWbnb = amountBnb.sub(swapAmountWbnb).sub(lpWbnb);  // 剩余用于生态奖励
+        reward(caller, ecologyWbnb, rewardToken, 1);  // 分发奖励
+        
+        // 内部添加流动性逻辑（原addLiquidityInternal函数内容）
+        uint balanceToken = AbsERC20(tokenContract).balanceOf(address(this));  // 获取合约代币余额
+        uint balanceWbnb = AbsERC20(wbnb).balanceOf(address(this));  // 获取合约WBNB余额
+        
+        if(balanceToken > 0 && balanceWbnb > 0) {
+            AbsERC20(tokenContract).approve(cakeV2Router, balanceToken);  // 授权代币给路由器
+            AbsERC20(wbnb).approve(cakeV2Router, balanceWbnb);  // 授权WBNB给路由器
+            // 调用PancakeSwap添加流动性
+            (,, uint liquidity) = IPancakeRouterV2(cakeV2Router).addLiquidity(
+                tokenContract, wbnb, balanceToken, balanceWbnb, 0, 0, address(this), block.timestamp
+            );
+            AbsERC20(tokenLpContract).give(caller, liquidity, rewardToken.mul(10), amountBnb);  // 分发LP代币给用户
+            miningLPData.stake(caller, rewardToken.mul(10));  // 将代币质押到LP挖矿池
+            balanceToken = AbsERC20(tokenContract).balanceOf(address(this));  // 检查剩余代币
+            if(balanceToken > 0) {
+                 AbsERC20(tokenContract).burn(balanceToken);  // 销毁剩余代币
+             }
+        }
+        
+      
+       
+    }
+ 
+    
+    /**
+     * @dev 卖出代币
+     * @param caller 调用者地址
+     * @param amountIn 卖出的代币数量
+     * 90%的代币用于交换WBNB，10%用于奖励分配
+     */
+    function sellToken(address caller, uint amountIn) external isCaller nonReentrant {
+        require(amountIn > 0, "Amount must be greater than 0");  // 检查代币数量有效性
+        
+        // 用户需要先将代币转入合约
+        // AbsERC20(caller).transfer(address(this),amountIn);
+
+        uint swapAmountToken = amountIn.mul(90).div(100);  // 90%用于交换
+        AbsERC20(tokenContract).transfer(cakeV2SwapContract, swapAmountToken);  // 转账到交换合约
+        (uint amountWbnbSwap, uint amountWbnbSlippage) = ICakeV2Swap(cakeV2SwapContract).swapTokenToWBnb(swapAmountToken, address(this), tokenToWbnbPath, tokenPair, address(0));  // 执行代币到WBNB的交换
+        uint rewardToken = amountIn.sub(swapAmountToken);  // 10%用于奖励
+        
+        reward(caller, 0, rewardToken, 2);  // 分发奖励
+        uint lpToken = amountWbnbSlippage.mul(2).div(10);  // 20%用于添加流动性
+        launchBNB(caller, amountWbnbSlippage-lpToken);  // 发送BNB给用户
+        AbsERC20(wbnb).withdraw(lpToken);  // 将WBNB提取为bnb
+
+        //将LP代币转账给合约
+        this.addLiquidity(caller, lpToken);  // 20%用于添加流动性
+
+    }
+    
+    /**
+     * @dev 代币转账处理
+     * @param from 发送方地址
+     * @param to 接收方地址
+     * @param amountIn 转账数量
+     * 处理代币转账时的奖励分配
+     */
+    function transferToken(address from, address to, uint amountIn) external isCaller nonReentrant {
+        if(amountIn > 0) {
+            reward(from, 0, amountIn, 3);  // 转账时分发奖励
+        }
+    }
+
+    /*---------------------------------------------------面板功能-----------------------------------------------------------*/
+    function addLiquidity(address caller, uint amountBnb) external payable nonReentrant returns (bool) {
+        require(amountBnb > 0, "The amountIn must be greater than 0");
+        AbsERC20(wbnb).deposit{value: amountBnb}();
+        AbsERC20(wbnb).transfer(address(this), amountBnb);
+        this.addLP(caller, amountBnb);
+        
+        uint256 burnReward = miningBurnData.earned(msg.sender);
+        if(burnReward > 0){
+            miningBurn(msg.sender, cakePair, miningBurnData.getReward(msg.sender));
+            AbsERC20(cakePair).sync();
+        }
+        
+        uint balanceTarget = AbsERC20(msg.sender).getBalance(cakePair);
+        uint balancePush = miningBurnData.earned(msg.sender);
+        if(balanceTarget >= balancePush){
+            miningBurnData.updateOutput(balanceTarget.sub(balancePush));
+        } else {
+            miningBurnData.updateOutput(balanceTarget);
+        }
+        
+        return true;
+    }
+   
+    
+    // 重复的sellToken函数已删除
+    
+    function transferBefore(address from, address to, uint256 amount) external isCaller returns(uint result) {
+        uint direction = 3;
+        if(from == cakePair) direction = 1;
+        else if(to == cakePair) direction = 2;
+        else direction = 3;
+        
+        if(direction == 1) {
+            require(block.number > sellLastBlock[msg.sender] + 3, 'Block Cooling');
+            result = 0;
+        } else if(direction == 2) {
+            require(block.number > sellLastBlock[msg.sender] + 3, 'Block Cooling');
+            result = 0;
+        } else if(direction == 3) {
+            result = transBefore(from, to, amount);
+        }
+    }
+    
+    function transferAfter(address from, address to, uint256 amount, uint amountBefore) external isCaller {
+        uint direction = 3;
+        if(from == cakePair) direction = 1;
+        else if(to == cakePair) direction = 2;
+        else direction = 3;
+        
+        if(direction == 1) {
+            sellLastBlock[msg.sender] = block.number;
+        } else if(direction == 2) {
+            sellLastBlock[msg.sender] = block.number;
+        } else if(direction == 3) {
+            transAfter(from, to, amount, amountBefore);
+        }
+    }
+
+    /*---------------------------------------------------挖矿库管理函数-----------------------------------------------------------*/
+    function initializeMiningData(
+        address _tokenContract,
+        uint256 _outputMin,
+        uint[] memory _upScale,
+        uint[] memory _downScale,
+        uint256 _baseScale,
+        address _cakePair,
+        address _wbnb
+    ) external onlyOwner {
+        // 初始化MiningBurn数据
+        miningBurnData.outputMin = _outputMin;
+        miningBurnData.upScale = _upScale;
+        miningBurnData.downScale = _downScale;
+        
+        // 初始化MiningLP数据
+        miningLPData.initialize();
+        
+        // 初始化MiningNode数据
+        miningNodeData.tokenContract = _tokenContract;
+    }
+    
+    // 公共访问器函数
+    /**
+     * @dev 获取销毁挖矿总供应量
+     * @return 销毁挖矿池的总供应量
+     */
+    function getMiningBurnTotalSupply() external view returns (uint256) {
+        return miningBurnData.totalSupply;  // 返回销毁挖矿总供应量
+    }
+    
+    /**
+     * @dev 获取LP挖矿总供应量
+     * @return LP挖矿池的总供应量
+     */
+    function getMiningLPTotalSupply() external view returns (uint256) {
+        return miningLPData.totalSupply;  // 返回LP挖矿总供应量
+    }
+    
+    /**
+     * @dev 获取节点挖矿总供应量
+     * @return 节点挖矿池的总供应量
+     */
+    function getMiningNodeTotalSupply() external view returns (uint256) {
+        return miningNodeData.totalSupply;  // 返回节点挖矿总供应量
+    }
+    
+    /**
+     * @dev 获取用户在销毁挖矿池的余额
+     * @param account 查询的用户地址
+     * @return 用户在销毁挖矿池的质押余额
+     */
+    function getMiningBurnUserBalance(address account) external view returns (uint256) {
+        return miningBurnData.balancesUser[account];  // 返回用户销毁挖矿余额
+    }
+    
+    /**
+     * @dev 获取用户在LP挖矿池的余额
+     * @param account 查询的用户地址
+     * @return 用户在LP挖矿池的质押余额
+     */
+    function getMiningLPUserBalance(address account) external view returns (uint256) {
+        return miningLPData.getUserBalance(account);  // 返回用户LP挖矿余额
+    }
+    
+    /**
+     * @dev 获取用户在节点挖矿池的余额
+     * @param account 查询的用户地址
+     * @return 用户在节点挖矿池的质押余额
+     */
+    function getMiningNodeUserBalance(address account) external view returns (uint256) {
+        return miningNodeData.balancesUser[account];  // 返回用户节点挖矿余额
+    }
+
+    /*---------------------------------------------------Tools功能集成-----------------------------------------------------------*/
+    /**
+     * @dev 更新Cake池余额
+     * @param token 代币合约地址
+     * @param target 目标地址
+     * 领取用户的销毁挖矿奖励并同步池子状态
+     */
+    function updateBalanceCake(address token, address target) external isCaller {
+        uint256 burnReward = miningBurnData.earned(target);  // 获取销毁挖矿奖励
+        if(burnReward > 0){
+            miningBurn(token, target, miningBurnData.getReward(target));  // 销毁代币作为奖励
+            AbsERC20(target).sync();  // 同步池子状态
+        }
+    }
+    
+    /**
+     * @dev 更新用户余额
+     * @param token 代币合约地址
+     * @param target 目标用户地址
+     * 领取用户的LP挖矿和节点挖矿奖励
+     */
+    function updateBalanceUser(address token, address target) external isCaller {
+        uint256 lpReward = miningLPData.earned(target);  // 获取LP挖矿奖励
+        if(lpReward > 0){
+            miningMint(token, target, miningLPData.getReward(target));  // 铸造代币作为LP奖励
+        }
+        uint256 nodeReward = miningNodeData.earned(target);  // 获取节点挖矿奖励
+        if(nodeReward > 0){
+            miningNodeData.getReward(target);  // 领取节点挖矿奖励
+        }
+    }
+    
+    /**
+     * @dev 更新挖矿产出
+     * @param token 代币合约地址
+     * @param target 目标地址
+     * 根据目标地址的代币余额更新销毁挖矿的产出量
+     */
+    function updateMiningOutput(address token, address target) external isCaller {
+        uint balanceTarget = AbsERC20(token).getBalance(target);  // 获取目标地址代币余额
+        uint balancePush = miningBurnData.earned(target);  // 获取待领取的销毁挖矿奖励
+        if(balanceTarget >= balancePush){
+            miningBurnData.updateOutput(balanceTarget.sub(balancePush));  // 更新产出为余额减去待领取奖励
+        } else {
+            miningBurnData.updateOutput(balanceTarget);  // 更新产出为当前余额
+        }
+    }
+    
+
+    
+    /*---------------------------------------------------内部函数-----------------------------------------------------------*/
+    /**
+     * @dev 内部设置双向绑定关系
+     * @param from 被推荐人地址
+     * @param to 推荐人地址
+     * 内部函数，用于在转账等操作中自动尝试建立推荐关系
+     */
+    function internalSetBind(address from, address to) private {
+        // 检查from没有推荐人，to有推荐人，且未绑定过
+        if(inviterMap[from] == address(0) && inviterMap[to] != address(0) && !bindMap[from][to]) {
+            inviterMap[from] = to;  // 建立推荐关系
+            bindMap[from][to] = true;  // 设置绑定状态
+            emit BindInviter(from, to);  // 触发绑定事件
+        }
+    }
+
+  
+    
+
+     
+  
+     
+     
+
+    
+
+    
+    /**
+     * @dev 发送BNB给目标地址
+     * @param spender 目标地址
+     * @param amountIn BNB数量
+     * 将WBNB提取为ETH并发送给指定地址
+     */
+    function launchBNB(address spender, uint amountIn) private {
+        AbsERC20(wbnb).withdraw(amountIn);  // 将WBNB提取为ETH
+        (bool sent, ) = spender.call{value: amountIn}("");  // 发送bnb给用户
+        require(sent, "Failed to send Ether");  // 确保发送成功
+    }
+    
+    /**
+     * @dev 奖励分配函数（简化版本）
+     * @param spender 调用者地址
+     * @param amountInCoin BNB奖励数量
+     * @param amountInToken 代币奖励数量
+     * @param action 操作类型
+     * @return rewardTotalCoin 总BNB奖励
+     * @return rewardTotalToken 总代币奖励
+     * 当前版本已简化，直接返回(0, 0)
+     */
+    function reward(address spender, uint amountInCoin, uint amountInToken, uint action) private returns(uint rewardTotalCoin, uint rewardTotalToken) {
+        // 奖励功能已简化，不再使用配置参数
+        return (0, 0);
+    }
+    
+
+    
+
+
+    
+    /**
+     * @dev 转账前处理函数
+     * @param from 发送方地址
+     * @param to 接收方地址
+     * @param amount 转账数量
+     * @return amountCoin 返回的币种数量
+     * 处理转账前的推荐关系绑定和奖励领取
+     */
+    function transBefore(address from, address to, uint amount) private returns(uint amountCoin) {
+        // 如果任一方有推荐关系，尝试建立绑定
+        if(inviterMap[from] != address(0) || inviterMap[to] != address(0)) {
+            internalSetBind(from, to);
+        }
+        
+        // 领取LP挖矿奖励
+        uint256 lpReward = miningLPData.earned(from);
+        if(lpReward > 0){
+            miningMint(msg.sender, from, miningLPData.getReward(from));
+        }
+        // 领取节点挖矿奖励
+        uint256 nodeReward = miningNodeData.earned(from);
+        if(nodeReward > 0){
+            miningNodeData.getReward(from);
+        }
+    }
+    
+    /**
+     * @dev 转账后处理函数
+     * @param from 发送方地址
+     * @param to 接收方地址
+     * @param amount 转账数量
+     * @param amountCoin 币种数量
+     * 当前版本已简化，无需特殊处理
+     */
+    function transAfter(address from, address to, uint amount, uint amountCoin) private {
+        // 简化转账后逻辑
+    }
+    
+
+
+
+    /*---------------------------------------------------配置管理-----------------------------------------------------------*/
+    /**
+     * @dev 设置Cake交易对地址
+     * @param _cakePair Cake交易对合约地址
+     * 管理员设置Cake交易对的合约地址
+     */
+    function setConfig(address _cakePair) public onlyOwner {
+        cakePair = _cakePair;  // 设置Cake交易对地址
+    }
+    
+    /**
+     * @dev 设置外部合约地址
+     * @param _cakeV2SwapContract PancakeSwap交换合约地址
+     * @param _tokenLpContract LP代币合约地址
+     * 管理员设置系统依赖的外部合约地址
+     */
+    function setExternalContract(
+        address _cakeV2SwapContract,
+        address _tokenLpContract
+    ) public onlyOwner {
+        cakeV2SwapContract = _cakeV2SwapContract;  // 设置交换合约地址
+        tokenLpContract = _tokenLpContract;  // 设置LP代币合约地址
+    }
+    
+    /**
+     * @dev 设置代币合约和交易对
+     * @param _tokenContract 项目代币合约地址
+     * @param _tokenPair 代币交易对地址
+     * 管理员设置代币相关合约地址并自动配置交换路径
+     */
+    function setCoinContract(address _tokenContract, address _tokenPair) public onlyOwner {
+        tokenContract = _tokenContract;  // 设置代币合约地址
+        tokenToWbnbPath = [_tokenContract, wbnb];  // 设置代币到WBNB的交换路径
+        wbnbToTokenPath = [wbnb, _tokenContract];  // 设置WBNB到代币的交换路径
+        tokenPair = _tokenPair;  // 设置代币交易对地址
+    }
+    
+    // 挖矿合约设置函数已移除，现在使用库数据结构
+    
+
+    
+
+    
+    /**
+     * @dev 设置节点配置参数
+     * @param _joinNodeTeamAmountLimit 加入节点所需的团队业绩限额
+     * @param _joinNodeUserAmountLimit 加入节点所需的个人业绩限额
+     */
+    function setNodeConfig(uint _joinNodeTeamAmountLimit, uint _joinNodeUserAmountLimit) public onlyOwner {
+        joinNodeTeamAmountLimit = _joinNodeTeamAmountLimit;  // 设置团队业绩限额
+        joinNodeUserAmountLimit = _joinNodeUserAmountLimit;  // 设置个人业绩限额
+    }
+    
+    // 接收ETH
+    receive() external payable override {}
+}

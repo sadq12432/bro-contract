@@ -9,6 +9,7 @@ abstract contract Comn {
     address internal constant wbnb = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
     address internal constant cakeV2Router = 0x10ED43C718714eb63d5aA57B78B54704E256024E;
     uint256 internal constant approveMax = 115792089237316195423570985008687907853269984665640564039457584007913129639935;
+    uint256 internal constant slippageRate = 10; // 10%滑点率
     address private owner;
     mapping(address => bool) private callerMap;
     uint256 internal constant _NOT_ENTERED = 1;

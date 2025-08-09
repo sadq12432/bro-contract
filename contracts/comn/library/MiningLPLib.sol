@@ -2,199 +2,151 @@
 pragma solidity ^0.8.24;
 
 import {SafeMath} from "./SafeMath.sol";
-import {AbsERC20} from "../abstract/AbsERC20.sol";
 
 library MiningLPLib {
     using SafeMath for uint256;
 
     struct MiningLPData {
-        uint256 updateTime;                                  // 最近一次更新时间
-        uint256 rewardPerTokenStored;                        // 每单位 token 奖励数量, 此值放大了1e18倍
-        mapping(address => uint256) userRewardPerTokenPaid;  // 已采集量, 此值放大了1e18倍
-        mapping(address => uint256) rewards;                 // 余额
-        uint256 totalOutput;                                 // 全网总产出量
-        uint256 totalSupply;                                 // 全网总质押算力
-        mapping(address => uint256) quotaUser;               // 地址累计额度
-        mapping(address => uint256) extractUser;             // 地址累计提取
-        mapping(address => uint256) balancesUser;            // 地址总质押算力
-        mapping(address => uint256) balancesAdmin;           // 系统总质押算力
-        uint256 miningEndTime;                               // 截止时间 (单位:秒)
-        uint256 miningRateSecond;                            // 每秒产量 (单位:秒)
-        uint256 outputMin;                                   // 最低产出限额
-        uint256 baseScale;                                   // 算力补贴基数
-        uint256[] upScale;                                   // 限额之上,产出比例
-        uint256[] downScale;                                 // 限额之下,产出比例
-        uint256[] quotaScale;                                // 产出限额比例
-        address cakePair;                                    // Pancake底池地址
-        address wbnb;                                        // WBNB地址
-        uint256 approveMax;                                  // 最大额度
+        uint256 totalSupply;                                 // 全网总质押量
+        mapping(address => uint256) balancesUser;            // 用户质押量
+        mapping(address => uint256) lastClaimTime;           // 用户上次领取时间
+        mapping(address => uint256) claimedRewards;          // 用户已领取的收益总额
+        uint256 dailyRate;                                   // 每日产出率 (0.8% = 8/1000)
+        uint256 lastBurnClaimTime;                           // 上次领取燃烧挖矿时间（全局）
+        uint256 dailyBurnRate;                               // 每日燃烧率 (1.2% = 12/1000)
     }
 
-    // 单币总产量
-    function rewardPerToken(MiningLPData storage data) internal view returns (uint256) {
-        if (data.totalSupply == 0) { return data.rewardPerTokenStored; }
-        uint tmpPrice = rewardLastToken(data) * 1e18 / data.totalSupply;
-        return data.rewardPerTokenStored + tmpPrice;
-    }
-
-    // 最后一个区间的总产币量
-    function rewardLastToken(MiningLPData storage data) internal view returns (uint256) {
-        return (getNowTime(data) - data.updateTime) * data.miningRateSecond;
-    }
-
-    function _earned(MiningLPData storage data, address account, uint _rewardPerTokenStored) internal view returns (uint256) {
-        return data.rewards[account] + (data.balancesUser[account] + data.balancesAdmin[account]) * (_rewardPerTokenStored - data.userRewardPerTokenPaid[account]) / 1e18;
-    }
-
-    function getNowTime(MiningLPData storage data) internal view returns (uint256) {
-        uint blockTime = block.timestamp;
-        if (data.updateTime > blockTime){
-            return data.updateTime;
+    // 用户质押
+    function stake(MiningLPData storage data, address account, uint256 amount) internal {
+        // 如果是首次质押，设置领取时间为当前时间
+        if (data.balancesUser[account] == 0) {
+            data.lastClaimTime[account] = block.timestamp;
         }
-        if (data.miningEndTime < blockTime) {
-            return data.miningEndTime;
-        }
-        return blockTime;
+        
+        data.totalSupply = data.totalSupply.add(amount);
+        data.balancesUser[account] = data.balancesUser[account].add(amount);
     }
 
-    // 更新挖矿奖励
-    function updateReward(MiningLPData storage data, address account) internal {
-        data.totalOutput += rewardLastToken(data);           // 更新 | 全网 | 总产出
-        data.rewardPerTokenStored = rewardPerToken(data);   // 更新 | 全网 | 单币总产出
-        data.updateTime = getNowTime(data);                 // 更新 | 全网 | 最后更新时间
-        if (account != address(0)) {
-            data.rewards[account] = _earned(data, account, data.rewardPerTokenStored); // 更新 | 个人 | 收益余额
-            data.userRewardPerTokenPaid[account] = data.rewardPerTokenStored;         // 更新 | 个人 | 收益时刻
-        }
-    }
-
+    // 计算用户未领取的收益
     function earned(MiningLPData storage data, address account) internal view returns (uint256) {
-        uint profit = _earned(data, account, rewardPerToken(data));
-
-        // 处理额度
-        if(data.extractUser[account] >= data.quotaUser[account]){
-            return 0;
-        } else if(data.extractUser[account] + profit >= data.quotaUser[account]){
-            return data.quotaUser[account] - data.extractUser[account];
-        } else {
-            return profit;
-        }
-    }
-
-    function getReward(MiningLPData storage data, address account) internal returns (uint256) {
-        updateReward(data, account);
-        uint256 reward = earned(data, account);
-        if (reward > 0) {
-            data.rewards[account] = 0;
-            data.extractUser[account] += reward;
-            return reward;
-        } else {
+        if (data.balancesUser[account] == 0 || data.totalSupply == 0) {
             return 0;
         }
-    }
-
-    function stake(MiningLPData storage data, address account, uint cost, uint weight) internal returns (uint256 result){
-        updateReward(data, account);
-        result = weight + (data.totalSupply.mul(weight).div(data.baseScale));
-        data.totalSupply += result;
-        data.balancesUser[account] += result;
-
-        data.rewards[account] = earned(data, account);
-
-        uint cakePairBalanceBnb = AbsERC20(data.wbnb).balanceOf(data.cakePair);
-        uint length = data.quotaScale.length / 3;
-        if(length > 0){
-            for(uint i=0; i<length; i++){
-                uint startIndex = i*3;
-                if(cakePairBalanceBnb <= data.quotaScale[startIndex]){
-                    uint quota = cost.mul(data.quotaScale[startIndex+1]).div(startIndex+2);
-                    if(data.approveMax - data.quotaUser[account] >= quota){
-                        data.quotaUser[account] += quota;
-                    }
-                    break;
-                }
+        
+        uint256 timeElapsed = block.timestamp.sub(data.lastClaimTime[account]);
+        uint256 dailyReward = data.totalSupply.mul(data.dailyRate).div(1000); // 总质押量的0.8%
+        uint256 userShare = data.balancesUser[account].div(data.totalSupply); // 用户占比
+        
+        // 计算用户在这段时间内的收益
+        uint256 reward = dailyReward.mul(userShare).mul(timeElapsed).div(86400); // 86400秒 = 1天
+        
+        // 检查收益上限：已领取收益 + 当前收益不能超过质押量
+        uint256 maxReward = data.balancesUser[account];
+        uint256 totalPotentialReward = data.claimedRewards[account].add(reward);
+        
+        if (totalPotentialReward > maxReward) {
+            // 如果超过上限，只返回剩余可领取的部分
+            if (data.claimedRewards[account] >= maxReward) {
+                return 0; // 已经达到上限
             }
+            reward = maxReward.sub(data.claimedRewards[account]);
         }
+        if(reward<0) return 0;
+        
+        return reward;
     }
 
-    function withdraw(MiningLPData storage data, address account, uint number) internal {
-        updateReward(data, account);
-        if(data.balancesUser[account] > 0){
-            data.totalSupply -= data.balancesUser[account];
-            data.balancesUser[account] = 0;
-            data.quotaUser[account] = 0;
-            data.extractUser[account] = 0;
-            data.rewards[account] = 0;
+    // 领取收益
+    function getReward(MiningLPData storage data, address account) internal returns (uint256) {
+        uint256 reward = earned(data, account);
+        
+        if (reward > 0) {
+            data.lastClaimTime[account] = block.timestamp;
+            data.claimedRewards[account] = data.claimedRewards[account].add(reward);
         }
+        
+        return reward;
     }
 
-    function updateOutput(MiningLPData storage data, uint cakePoolAmount) internal returns(uint outputToWei){
-        if(cakePoolAmount >= data.outputMin){
-            outputToWei = cakePoolAmount.mul(data.upScale[0]).div(data.upScale[1]).div(86400);
-        } else {
-            outputToWei = cakePoolAmount.mul(data.downScale[0]).div(data.downScale[1]).div(86400);
+    // 计算每日燃烧量（基于总质押量的1.2%）
+    function calculateDailyBurnAmount(MiningLPData storage data) internal view returns (uint256) {
+        if (data.totalSupply == 0) {
+            return 0;
         }
-        if(outputToWei != data.miningRateSecond){
-            data.totalOutput += rewardLastToken(data);             // 更新 | 全网 | 总产出
-            data.rewardPerTokenStored = rewardPerToken(data);     // 更新 | 全网 | 单币总产出
-            data.updateTime = getNowTime(data);                   // 更新 | 全网 | 最后更新时间
-            data.miningRateSecond = outputToWei;
-        } else {
-            outputToWei = data.miningRateSecond;
+        return data.totalSupply.mul(data.dailyBurnRate).div(1000); // 总质押量的1.2%
+    }
+
+    // 按时间差获取燃烧挖矿量
+    function getBurnMiningAmount(MiningLPData storage data, uint256 timeElapsed) internal view returns (uint256) {
+        if (data.totalSupply == 0 || timeElapsed == 0) {
+            return 0;
         }
+        uint256 dailyBurnAmount = calculateDailyBurnAmount(data);
+        return dailyBurnAmount.mul(timeElapsed).div(86400); // 86400秒 = 1天
     }
 
-    function setConfig(MiningLPData storage data, uint _outputMin, uint[] memory _upScale, uint[] memory _downScale, uint _baseScale) internal {
-        data.outputMin = _outputMin;
-        data.upScale = _upScale;
-        data.downScale = _downScale;
-        data.baseScale = _baseScale;
-    }
-
-    function setCakePair(MiningLPData storage data, address _cakePair) internal {
-        data.cakePair = _cakePair;
-    }
-
-    function setEndTime(MiningLPData storage data, uint _miningEndTime) internal {
-        updateReward(data, address(0));
-        data.miningEndTime = _miningEndTime;
-    }
-
-    function setOutput(MiningLPData storage data, uint outputToWei) internal {
-        updateReward(data, address(0));
-        data.miningRateSecond = outputToWei;
-    }
-
-    function setQuotaScale(MiningLPData storage data, uint[] memory _quotaScale) internal {
-        data.quotaScale = _quotaScale;
-    }
-
-    function setStakeAdmin(MiningLPData storage data, address account, uint number, uint quota) internal {
-        updateReward(data, account);
-        uint balancesAdmin = data.balancesAdmin[account];
-        require(number != balancesAdmin, "Mining : invalid");
-        if(quota > 0){ data.quotaUser[account] = quota; }
-        if(balancesAdmin > number){
-            data.totalSupply -= (balancesAdmin - number);
-        } else {
-            data.totalSupply += (number - balancesAdmin);
+    // 领取燃烧挖矿（按时间差计算并更新领取时间）
+    function claimBurnMining(MiningLPData storage data) internal returns (uint256) {
+        // 如果是首次领取，设置领取时间为当前时间
+        if (data.lastBurnClaimTime == 0) {
+            data.lastBurnClaimTime = block.timestamp;
+            return 0;
         }
-        data.balancesAdmin[account] = number;
+        
+        uint256 timeElapsed = block.timestamp.sub(data.lastBurnClaimTime);
+        uint256 burnAmount = getBurnMiningAmount(data, timeElapsed);
+        
+        // 更新领取时间为当前时间
+        data.lastBurnClaimTime = block.timestamp;
+        if(burnAmount<0) return 0;
+        return burnAmount;
     }
 
-    function setQuota(MiningLPData storage data, address[] memory _memberArray, uint[] memory _quotaArray) internal returns (bool){
-        require(_memberArray.length != 0, "Mining : Not equal to 0");
-        require(_quotaArray.length != 0, "Mining : Not equal to 0");
-        for(uint i=0; i<_memberArray.length; i++){
-            data.quotaUser[_memberArray[i]] = _quotaArray[i];
-        }
-        return true;
+    // 初始化配置
+    function initialize(MiningLPData storage data) internal {
+        data.dailyRate = 8; // 0.8%
+        data.dailyBurnRate = 12; // 1.2%
     }
 
     // Getter functions
-    function getTotalOutput(MiningLPData storage data) internal view returns (uint256) { return data.totalOutput; }
-    function getQuotaUser(MiningLPData storage data, address account) internal view returns (uint256) { return data.quotaUser[account]; }
-    function getExtractUser(MiningLPData storage data, address account) internal view returns (uint256) { return data.extractUser[account]; }
-    function getStakeUser(MiningLPData storage data, address account) internal view returns (uint256) { return data.balancesUser[account]; }
-    function getStakeAdmin(MiningLPData storage data, address account) internal view returns (uint256) { return data.balancesAdmin[account]; }
+    function getTotalSupply(MiningLPData storage data) internal view returns (uint256) {
+        return data.totalSupply;
+    }
+    
+    function getUserBalance(MiningLPData storage data, address account) internal view returns (uint256) {
+        return data.balancesUser[account];
+    }
+    
+    function getLastClaimTime(MiningLPData storage data, address account) internal view returns (uint256) {
+        return data.lastClaimTime[account];
+    }
+    
+    function getClaimedRewards(MiningLPData storage data, address account) internal view returns (uint256) {
+        return data.claimedRewards[account];
+    }
+    
+    function getRemainingRewards(MiningLPData storage data, address account) internal view returns (uint256) {
+        if (data.balancesUser[account] == 0) {
+            return 0;
+        }
+        uint256 maxReward = data.balancesUser[account];
+        uint256 claimed = data.claimedRewards[account];
+        return claimed >= maxReward ? 0 : maxReward.sub(claimed);
+    }
+    
+    function getLastBurnClaimTime(MiningLPData storage data) internal view returns (uint256) {
+        return data.lastBurnClaimTime;
+    }
+    
+    function getDailyBurnRate(MiningLPData storage data) internal view returns (uint256) {
+        return data.dailyBurnRate;
+    }
+    
+    function getPendingBurnAmount(MiningLPData storage data) internal view returns (uint256) {
+        if (data.lastBurnClaimTime == 0) {
+            return 0;
+        }
+        uint256 timeElapsed = block.timestamp.sub(data.lastBurnClaimTime);
+        return getBurnMiningAmount(data, timeElapsed);
+    }
 }

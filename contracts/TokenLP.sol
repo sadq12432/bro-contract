@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 pragma solidity ^0.8.24;
 
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import "./UnifiedContract.sol";
-import {IMiningLP} from "./interface/IMiningLP.sol";
 
-contract TokenLP is ERC20,Ownable{
-    uint8 public _decimals;
-
+contract TokenLP is ERC721,Ownable{
+    uint256 private _nextTokenId = 1;
+    
     mapping(address => bool) private callerMap;
     modifier isCaller(){
         require(callerMap[msg.sender] || msg.sender == owner(),"BRO-LP: No call permission");
@@ -17,54 +15,60 @@ contract TokenLP is ERC20,Ownable{
 
     function setCaller(address _address,bool _bool) external onlyOwner(){ callerMap[_address] = _bool; }
     function outTransfer(address contractAddress,address targetAddress,uint amountToWei) public isCaller{
-        ERC20(contractAddress).transfer(targetAddress,amountToWei);
+        ERC721(contractAddress).transferFrom(address(this), targetAddress, amountToWei);
     }
 
-    constructor() ERC20("Brother LPs", "BRO-LP") Ownable(msg.sender){
-        _decimals = decimals();
+    constructor() ERC721("Brother LPs", "BRO-LP") Ownable(msg.sender){
+        // NFT构造函数
     }
 
     function give(address account, uint256 value, uint256 amountToken, uint256 amountBnb) external isCaller {
-        _mint(account,value);
-        IMiningLP(miningLp).stake(account,amountToken,amountBnb);
+        // 为用户铸造NFT，使用递增的tokenId
+        _mint(account, _nextTokenId);
+        _nextTokenId++;
     }
 
-    function burn(address account, uint256 value) private {
-        _burn(account,value);
-        IMiningLP(miningLp).withdraw(account,value);
-        UnifiedContract(unifiedContract).removeLiquidity(account,value,token);
-    }
-
+  
     /*---------------------------------------------------交易-----------------------------------------------------------*/
 
-    function transferFrom(address from, address to, uint256 value) public override returns (bool) {
-        if(to == token || to == address(0)){
-            require(value >= super.balanceOf(from),"BRO-LP: Indivisible");
-            _spendAllowance(from, _msgSender(), value);
-            burn(from,value);
-        } else {
-            revert("BRO-LP: Not Transfer");
-        }
-        return true;
+    function transferFrom(address from, address to, uint256 tokenId) public override {
+        revert("BRO-LP: Transfer not allowed");
     }
 
-    function transfer(address to, uint256 value) public override returns (bool) {
-        if(to == token || to == address(0)){
-            require(value >= super.balanceOf(_msgSender()),"BRO-LP: Indivisible");
-            burn(_msgSender(),value);
-        } else {
-            revert("BRO-LP: Not Transfer");
+    // 重写_update来拦截转账
+    function _update(address to, uint256 tokenId, address auth) internal override returns (address) {
+        // 只允许铸造（to != address(0) && from == address(0)）和销毁（to == address(0)）
+        address from = _ownerOf(tokenId);
+        if (from != address(0) && to != address(0)) {
+            revert("BRO-LP: Transfer not allowed");
         }
-        return true;
+        return super._update(to, tokenId, auth);
     }
+    
+    // // 提供销毁NFT的公共接口
+    // function burnNFT(uint256 tokenId) external {
+    //     require(ownerOf(tokenId) == _msgSender(), "BRO-LP: Not owner");
+    //     burn(tokenId);
+    // }
 
-    /*---------------------------------------------------管理运营-----------------------------------------------------------*/
-    address public token;
-    address payable public unifiedContract;
-    address public miningLp;
-    function setExternalContract(address _token,address _unifiedContract,address _miningLp) public onlyOwner {
-        token = _token;
-        unifiedContract = payable(_unifiedContract);
-        miningLp = _miningLp;
+
+    
+    function burn(uint256 tokenId) private {
+        _burn(tokenId);
+    }
+    
+    // 获取用户拥有的NFT数量
+    function balanceOf(address owner) public view override returns (uint256) {
+        return super.balanceOf(owner);
+    }
+    
+    // 获取下一个要铸造的tokenId
+    function getNextTokenId() public view returns (uint256) {
+        return _nextTokenId;
+    }
+    
+    // 检查tokenId是否存在
+    function exists(uint256 tokenId) public view returns (bool) {
+        return _ownerOf(tokenId) != address(0);
     }
 }

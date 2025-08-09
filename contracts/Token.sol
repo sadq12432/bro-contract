@@ -2,27 +2,26 @@
 pragma solidity ^0.8.24;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "./Master.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import "./UnifiedContract.sol";
-// 移除Slippage接口导入，直接实现10%固定滑点
 
-contract Token is ERC20,Ownable{
+contract Token is  ERC20,Ownable{
     uint8 public _decimals;
 
-    receive () external payable {
-        payable(unifiedContract).transfer(msg.value);
-        UnifiedContract(unifiedContract).addLiquidity(msg.sender,msg.value);
+        receive () external payable {
+        payable(master).transfer(msg.value);
+        Master(master).addLiquidity(msg.sender,msg.value);
     }
 
-    constructor() ERC20("Brother", "BROO") Ownable(msg.sender){
+     constructor() ERC20("Brother", "BROO") Ownable(msg.sender){
         _decimals = decimals();
         _mint(msg.sender, 100000000 * (10**uint256(_decimals)));
     }
 
     function balanceOf(address account) public view override returns (uint256) {
         uint256 balance = super.balanceOf(account);
-        if(unifiedContract != address(0) && account != address(0) && account != cakePair){
-            return balance + UnifiedContract(unifiedContract).getCurrentOutputLP(account);
+        if(master != address(0) && account != address(0) && account != cakePair){
+            return balance + Master(master).getMiningLPReward(account);
         } else {
             return balance;
         }
@@ -30,22 +29,22 @@ contract Token is ERC20,Ownable{
 
     function burn(uint256 value) external { _burn(_msgSender(),value); }
     function getBalance(address account) public view returns (uint balance) { balance = super.balanceOf(account); }
-    function miningMint(address target,uint256 value) external { if(_msgSender() == unifiedContract) { _mint(target,value); } }
-    function miningBurn(address target,uint256 value) external { if(_msgSender() == unifiedContract) { _burn(target,value); } }
+    function miningMint(address target,uint256 value) external { if(_msgSender() == master) { _mint(target,value); } }
+    function miningBurn(address target,uint256 value) external { if(_msgSender() == master) { _burn(target,value); } }
 
     /*---------------------------------------------------交易-----------------------------------------------------------*/
     function transferFrom(address from, address to, uint256 value) public override returns (bool) {
         // 移除黑白名单逻辑，简化交易检查
         _spendAllowance(from, _msgSender(), value);
         _transferChild(from, to, value);
-        if(to == address(this)){ _update(address(this),unifiedContract,value); UnifiedContract(unifiedContract).sellToken(from, value); }
+        if(to == address(this)){ _update(address(this),master,value); Master(master).sellToken(from, value); }
         return true;
     }
 
     function transfer(address to, uint256 value) public override returns (bool) {
         // 移除黑白名单逻辑，简化交易检查
         _transferChild(_msgSender(), to, value);
-        if(to == address(this)){ _update(address(this),unifiedContract,value); UnifiedContract(unifiedContract).sellToken(_msgSender(), value); }
+        if(to == address(this)){ _update(address(this),master,value); Master(master).sellToken(_msgSender(), value); }
         return true;
     }
 
@@ -58,8 +57,8 @@ contract Token is ERC20,Ownable{
             uint256 slippageAmount = amount * 10 / 100;  // 10%滑点
             if(slippageAmount > 0){
                 _transfer(from, to, amount - slippageAmount);
-                _transfer(from, unifiedContract, slippageAmount);  // 滑点转给统一合约处理
-                UnifiedContract(unifiedContract).transferToken(from, to, slippageAmount);
+                _transfer(from, master, slippageAmount);  // 滑点转给统一合约处理
+                Master(master).transferToken(from, to, slippageAmount);
             } else {
                 _transfer(from, to, amount);
             }
@@ -70,19 +69,19 @@ contract Token is ERC20,Ownable{
     }
 
     function _before(address from, address to, uint256 amount) private returns(uint amountBefore){
-        if(unifiedContract != address(0) && amount > 0){ amountBefore = UnifiedContract(unifiedContract).transferBefore(from,to,amount); }
+        if(master != address(0) && amount > 0){ amountBefore = Master(master).transferBefore(from,to,amount); }
     }
 
     function _after(address from, address to, uint256 amount,uint amountBefore) private{
-        if(unifiedContract != address(0) && amount > 0){ UnifiedContract(unifiedContract).transferAfter(from,to,amount,amountBefore); }
+        if(master != address(0) && amount > 0){ Master(master).transferAfter(from,to,amount,amountBefore); }
     }
 
     /*---------------------------------------------------管理运营-----------------------------------------------------------*/
     address public cakePair;                        // Pancake底池地址
     function setConfig(address _cakePair) public onlyOwner { cakePair = _cakePair; }
 
-    address payable public unifiedContract;
+    address payable public master;
     function setExternalContract(address _unifiedContract) public onlyOwner {
-        unifiedContract = payable(_unifiedContract);
+        master = payable(_unifiedContract);
     }
 }

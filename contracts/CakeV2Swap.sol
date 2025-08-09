@@ -12,17 +12,17 @@ contract CakeV2Swap is Comn,ICakeV2Swap{
     using SafeMath for uint256;
 
     /*---------------------------------------------------精准交易-----------------------------------------------------------*/
-    function swapTokenToUsdt(uint amountToken,address receiveAddress,address[] memory path,address pair,address slippage) external virtual isCaller returns (uint amountUsdtSwap,uint amountUsdtSlippage){
+    function swapTokenToWBnb(uint amountToken,address receiveAddress,address[] memory path,address pair,address slippage) external virtual isCaller returns (uint amountWbnbSwap,uint amountWbnbSlippage){
         // 简化：直接使用10%滑点
         uint amountSlippage = amountToken.mul(10).div(100);
-        uint amountOutMin = getInToOut(amountToken-amountSlippage,path,pair).mul(minScale[0]).div(minScale[1]);       // 预测:使用token,获得Usdt(结果再打指定折)
-        amountUsdtSwap = swapInToOut(amountToken,amountOutMin,path,receiveAddress);                                   // 兑换:使用token,获得Usdt (这里暂时保留验证,实际到帐USDT是否会因为滑点而受影响)
-        amountUsdtSlippage = amountUsdtSwap;
+        uint amountOutMin = getInToOut(amountToken-amountSlippage,path,pair).mul(minScale[0]).div(minScale[1]);       // 预测:使用token,获得Wbnb(结果再打指定折)
+        amountWbnbSwap = swapInToOut(amountToken,amountOutMin,path,receiveAddress);                                   // 兑换:使用token,获得Wbnb (这里暂时保留验证,实际到帐WBNB是否会因为滑点而受影响)
+        amountWbnbSlippage = amountWbnbSwap;
     }
 
-    function swapUsdtToToken(uint amountUsdt,address receiveAddress,address[] memory path,address pair,address slippage) external virtual isCaller returns (uint amountTokenSwap,uint amountTokenSlippage){
-        uint amountOutMin = getInToOut(amountUsdt,path,pair).mul(minScale[0]).div(minScale[1]);        // 预测:使用Usdt,获得token(结果再打指定折)
-        amountTokenSwap = swapInToOut(amountUsdt,amountOutMin,path,receiveAddress);                    // 兑换:使用Usdt,获得token
+    function swapWbnbToToken(uint amountWbnb,address receiveAddress,address[] memory path,address pair,address slippage) external virtual isCaller returns (uint amountTokenSwap,uint amountTokenSlippage){
+        uint amountOutMin = getInToOut(amountWbnb,path,pair).mul(minScale[0]).div(minScale[1]);        // 预测:使用Wbnb,获得token(结果再打指定折)
+        amountTokenSwap = swapInToOut(amountWbnb,amountOutMin,path,receiveAddress);                    // 兑换:使用Wbnb,获得token
         // 简化：直接使用10%滑点
         uint amountSlippage = amountTokenSwap.mul(10).div(100);
         amountTokenSlippage = amountTokenSwap - amountSlippage;
@@ -36,16 +36,16 @@ contract CakeV2Swap is Comn,ICakeV2Swap{
 
 
     /*---------------------------------------------------扣费交易-----------------------------------------------------------*/
-    function swapTokenToUsdtFee(uint amountToken,address receiveAddress,address[] memory path,address pair,address slippage) external virtual isCaller {
+    function swapTokenToWbnbFee(uint amountToken,address receiveAddress,address[] memory path,address pair,address slippage) external virtual isCaller {
         // 简化：直接使用10%滑点
         uint amountSlippage = amountToken.mul(10).div(100);
-        uint amountOutMin = getInToOut(amountToken-amountSlippage,path,pair).mul(minScale[0]).div(minScale[1]);       // 预测:使用token,获得Usdt(结果再打指定折)
-        swapInToOutFee(amountToken,amountOutMin,path,receiveAddress);                                                 // 兑换:使用token,获得Usdt (这里暂时保留验证,实际到帐USDT是否会因为滑点而受影响)
+        uint amountOutMin = getInToOut(amountToken-amountSlippage,path,pair).mul(minScale[0]).div(minScale[1]);       // 预测:使用token,获得Wbnb(结果再打指定折)
+        swapInToOutFee(amountToken,amountOutMin,path,receiveAddress);                                                 // 兑换:使用token,获得Wbnb (这里暂时保留验证,实际到帐WBNB是否会因为滑点而受影响)
     }
 
-    function swapUsdtToTokenFee(uint amountUsdt,address receiveAddress,address[] memory path,address pair) external virtual isCaller {
-        uint amountOutMin = getInToOut(amountUsdt,path,pair).mul(minScale[0]).div(minScale[1]);        // 预测:使用Usdt,获得token(结果再打指定折)
-        swapInToOutFee(amountUsdt,amountOutMin,path,receiveAddress);                                   // 兑换:使用Usdt,获得token
+    function swapWbnbToTokenFee(uint amountWbnb,address receiveAddress,address[] memory path,address pair) external virtual isCaller {
+        uint amountOutMin = getInToOut(amountWbnb,path,pair).mul(minScale[0]).div(minScale[1]);        // 预测:使用Wbnb,获得token(结果再打指定折)
+        swapInToOutFee(amountWbnb,amountOutMin,path,receiveAddress);                                   // 兑换:使用Wbnb,获得token
     }
 
     // 兑换:使用In,获得Out，支持转账时扣费
