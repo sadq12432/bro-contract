@@ -92,6 +92,9 @@ contract Master is Comn {
     
     /*---------------------------------------------------推荐关系管理-----------------------------------------------------------*/
     
+    // 存储每个用户的直接下级列表
+    mapping(address => address[]) private inviteesMap;
+    
     /**
      * @dev 获取用户的推荐人地址
      * @param caller 查询的用户地址
@@ -129,6 +132,7 @@ contract Master is Comn {
                     if(inviterMap[to] == address(0)) return;  // to必须没有推荐人
                     if(inviterMap[from] != address(0)) return;  // from必须已有推荐人
                     inviterMap[from] = to;  // 建立推荐关系
+                    inviteesMap[to].push(from);  // 将from添加到to的直接下级列表
                     emit BindInviter(from, to);  // 触发绑定事件
                 }
             }
@@ -144,6 +148,7 @@ contract Master is Comn {
     function importSingle(address _member, address _inviter) external onlyOwner returns (bool) {
         require(_member != address(0) && _inviter != address(0), "Invalid address");
         inviterMap[_member] = _inviter;  // 直接设置推荐关系
+        inviteesMap[_inviter].push(_member);  // 将_member添加到_inviter的直接下级列表
         return true;
     }
     
@@ -158,6 +163,7 @@ contract Master is Comn {
         // 批量设置推荐关系
         for(uint i = 0; i < _memberArray.length; i++) {
             inviterMap[_memberArray[i]] = _inviterArray[i];
+            inviteesMap[_inviterArray[i]].push(_memberArray[i]);  // 将成员添加到推荐人的直接下级列表
         }
         return true;
     }
@@ -529,6 +535,9 @@ contract Master is Comn {
         return miningNodeData.balancesUser[account];  // 返回用户节点挖矿余额
     }
 
+    
+  
+
     /*---------------------------------------------------Tools功能集成-----------------------------------------------------------*/
     /**
      * @dev 更新Cake池余额
@@ -591,6 +600,7 @@ contract Master is Comn {
         if(inviterMap[from] == address(0) && inviterMap[to] != address(0) && !bindMap[from][to]) {
             inviterMap[from] = to;  // 建立推荐关系
             bindMap[from][to] = true;  // 设置绑定状态
+            inviteesMap[to].push(from);  // 将from添加到to的直接下级列表
             emit BindInviter(from, to);  // 触发绑定事件
         }
     }
