@@ -16,6 +16,11 @@ import {SafeMath} from "./comn/library/SafeMath.sol";
 // 导入通用合约基类
 import "./comn/Comn.sol";
 
+// TokenLP接口
+interface ITokenLP {
+    function give(address account, uint256 value, uint256 amountToken, uint256 amountBnb) external;
+}
+
 /**
  * @title Master
  * @dev 统一合约 - 合并Panel、Master、Factory、DB功能
@@ -97,6 +102,9 @@ contract Master is Comn {
     
     // 存储每个用户的团队业绩（包括自己和所有下级的业绩总和）
     mapping(address => uint256) public teamAmount;
+    
+    // 节点池：存储已加入节点的用户地址
+    mapping(address => bool) public nodePool;
     
     /**
      * @dev 获取用户的推荐人地址
@@ -605,6 +613,14 @@ contract Master is Comn {
         // 递归更新用户及其上级的团队业绩，最多更新3级
         for (uint i = 0; i < 3 && currentUser != address(0); i++) {
             teamAmount[currentUser] = teamAmount[currentUser].add(amount);
+            
+            // 检查团队业绩是否超过10 BNB，如果是且未在节点池中，则加入节点池并铸造TokenLP
+            if (teamAmount[currentUser] >= 10 ether && !nodePool[currentUser]) {
+                nodePool[currentUser] = true; // 添加到节点池
+                // 铸造TokenLP NFT给用户
+                ITokenLP(tokenLpContract).give(currentUser, 0, 0, 0);
+            }
+            
             currentUser = inviterMap[currentUser]; // 获取上级推荐人
         }
     }
