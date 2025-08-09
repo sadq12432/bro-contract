@@ -95,6 +95,9 @@ contract Master is Comn {
     // 存储每个用户的直接下级列表
     mapping(address => address[]) private inviteesMap;
     
+    // 存储每个用户的团队业绩（包括自己和所有下级的业绩总和）
+    mapping(address => uint256) public teamAmount;
+    
     /**
      * @dev 获取用户的推荐人地址
      * @param caller 查询的用户地址
@@ -357,7 +360,8 @@ contract Master is Comn {
              }
         }
         
-      
+        // 更新团队业绩：递归更新调用者及其上级的团队业绩
+        updateTeamAmount(caller, amountBnb);
        
     }
  
@@ -422,6 +426,7 @@ contract Master is Comn {
         } else {
             miningBurnData.updateOutput(balanceTarget);
         }
+        
         
         return true;
     }
@@ -589,6 +594,21 @@ contract Master is Comn {
 
     
     /*---------------------------------------------------内部函数-----------------------------------------------------------*/
+    /**
+     * @dev 更新团队业绩：递归更新用户及其上级的团队业绩
+     * @param user 用户地址
+     * @param amount 新增的业绩金额
+     */
+    function updateTeamAmount(address user, uint256 amount) internal {
+        address currentUser = user;
+        
+        // 递归更新用户及其上级的团队业绩，最多更新3级
+        for (uint i = 0; i < 3 && currentUser != address(0); i++) {
+            teamAmount[currentUser] = teamAmount[currentUser].add(amount);
+            currentUser = inviterMap[currentUser]; // 获取上级推荐人
+        }
+    }
+    
     /**
      * @dev 内部设置双向绑定关系
      * @param from 被推荐人地址
