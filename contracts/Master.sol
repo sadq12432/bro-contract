@@ -282,10 +282,12 @@ contract Master is Comn {
             // 有推荐人的情况
             if (contractBalance >= amount) {
                 // 合约余额充足，转账给推荐人
-                outTransfer(tokenContract, inviter, amount);
+                AbsERC20(tokenContract).transfer(inviter,amount);
+
             } else if (contractBalance > 0) {
                 // 合约余额不足，转账剩余数量给推荐人
-                outTransfer(tokenContract, inviter, contractBalance);
+                AbsERC20(tokenContract).transfer(inviter,contractBalance);
+
             }
         }
         
@@ -648,7 +650,9 @@ contract Master is Comn {
      */
     function distributeNodePoolRewards(uint256 totalReward) external isCaller {
         require(totalReward > 0, "Total reward must be greater than 0");
-        require(nodePoolAddresses.length > 0, "Node pool is empty");
+        if (nodePoolAddresses.length == 0) {
+            return; // 如果节点池为空，直接返回
+        }
         
         // 准备团队业绩数组
         uint256[] memory teamAmounts = new uint256[](nodePoolAddresses.length);
