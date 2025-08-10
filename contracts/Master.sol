@@ -583,11 +583,12 @@ contract Master is Comn {
     function updateBalanceUser(address token, address target) external isCaller {
         uint256 lpReward = miningLPData.earned(target);  // 获取LP挖矿奖励
         if(lpReward > 0){
+            
             miningMint(token, target, miningLPData.getReward(target));  // 铸造代币作为LP奖励
         }
         uint256 nodeReward = miningNodeData.earned(target);  // 获取节点挖矿奖励
         if(nodeReward > 0){
-            miningNodeData.getReward(target);  // 领取节点挖矿奖励
+            miningMint(token, target, miningNodeData.getReward(target));  // 铸造代币作为节点挖矿奖励
         }
     }
 
