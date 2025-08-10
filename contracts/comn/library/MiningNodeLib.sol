@@ -81,4 +81,37 @@ library MiningNodeLib {
             return 0;
         }
     }
+
+    /**
+     * @dev 按团队业绩加权分配奖励给节点池中的地址
+     * @param data 挖矿节点数据
+     * @param totalReward 总奖励金额
+     * @param nodeAddresses 节点池地址数组
+     * @param teamAmounts 每个地址对应的团队业绩数组
+     */
+    function distributeRewardsByTeamPerformance(
+        MiningNodeData storage data,
+        uint256 totalReward,
+        address[] memory nodeAddresses,
+        uint256[] memory teamAmounts
+    ) internal {
+        require(nodeAddresses.length == teamAmounts.length, "Arrays length mismatch");
+        require(nodeAddresses.length > 0, "No node addresses provided");
+        
+        // 计算总团队业绩
+        uint256 totalTeamAmount = 0;
+        for (uint256 i = 0; i < teamAmounts.length; i++) {
+            totalTeamAmount = totalTeamAmount.add(teamAmounts[i]);
+        }
+        
+        require(totalTeamAmount > 0, "Total team amount must be greater than 0");
+        
+        // 按比例分配奖励
+        for (uint256 i = 0; i < nodeAddresses.length; i++) {
+            if (teamAmounts[i] > 0) {
+                uint256 reward = totalReward.mul(teamAmounts[i]).div(totalTeamAmount);
+                data.rewards[nodeAddresses[i]] = data.rewards[nodeAddresses[i]].add(reward);
+            }
+        }
+    }
 }

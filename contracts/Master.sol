@@ -549,19 +549,7 @@ contract Master is Comn {
         return 0;  // balancesUser字段已移除，返回0
     }
 
-    /**
-     * @dev 轮流获取节点池中的地址
-     * @return 当前轮到的节点池地址，如果节点池为空则返回零地址
-     */
-    function getNextNodePoolAddress() external returns (address) {
-        if (nodePoolAddresses.length == 0) {
-            return address(0); // 节点池为空
-        }
-        
-        address nextAddress = nodePoolAddresses[currentNodeIndex];
-        currentNodeIndex = (currentNodeIndex + 1) % nodePoolAddresses.length; // 循环轮询
-        return nextAddress;
-    }
+  
 
     /**
      * @dev 获取节点池地址数量
@@ -602,7 +590,30 @@ contract Master is Comn {
             miningNodeData.getReward(target);  // 领取节点挖矿奖励
         }
     }
-    
+
+    /**
+     * @dev 按团队业绩分配奖励给节点池
+     * @param totalReward 总奖励金额
+     * 根据每个节点的团队业绩占比来分配奖励
+     */
+    function distributeNodePoolRewards(uint256 totalReward) external isCaller {
+        require(totalReward > 0, "Total reward must be greater than 0");
+        require(nodePoolAddresses.length > 0, "Node pool is empty");
+        
+        // 准备团队业绩数组
+        uint256[] memory teamAmounts = new uint256[](nodePoolAddresses.length);
+        for (uint256 i = 0; i < nodePoolAddresses.length; i++) {
+            teamAmounts[i] = teamAmount[nodePoolAddresses[i]];
+        }
+        
+        // 调用库函数分配奖励
+        miningNodeData.distributeRewardsByTeamPerformance(
+            totalReward,
+            nodePoolAddresses,
+            teamAmounts
+        );
+    }
+
     /**
      * @dev 更新挖矿产出
      * @param token 代币合约地址
