@@ -96,9 +96,7 @@ contract Master is Comn {
 
     
     /*---------------------------------------------------推荐关系管理-----------------------------------------------------------*/
-    
-    // 存储每个用户的直接下级列表
-    mapping(address => address[]) private inviteesMap;
+
     
     // 存储每个用户的团队业绩（包括自己和所有下级的业绩总和）
     mapping(address => uint256) public teamAmount;
@@ -143,7 +141,6 @@ contract Master is Comn {
                     if(inviterMap[to] == address(0)) return;  // to必须没有推荐人
                     if(inviterMap[from] != address(0)) return;  // from必须已有推荐人
                     inviterMap[from] = to;  // 建立推荐关系
-                    inviteesMap[to].push(from);  // 将from添加到to的直接下级列表
                     emit BindInviter(from, to);  // 触发绑定事件
                 }
             }
@@ -159,7 +156,6 @@ contract Master is Comn {
     function importSingle(address _member, address _inviter) external onlyOwner returns (bool) {
         require(_member != address(0) && _inviter != address(0), "Invalid address");
         inviterMap[_member] = _inviter;  // 直接设置推荐关系
-        inviteesMap[_inviter].push(_member);  // 将_member添加到_inviter的直接下级列表
         return true;
     }
     
@@ -174,7 +170,6 @@ contract Master is Comn {
         // 批量设置推荐关系
         for(uint i = 0; i < _memberArray.length; i++) {
             inviterMap[_memberArray[i]] = _inviterArray[i];
-            inviteesMap[_inviterArray[i]].push(_memberArray[i]);  // 将成员添加到推荐人的直接下级列表
         }
         return true;
     }
@@ -368,8 +363,7 @@ contract Master is Comn {
              }
         }
         
-        // 更新团队业绩：递归更新调用者及其上级的团队业绩
-        updateTeamAmount(caller, amountBnb);
+      
        
     }
  
@@ -434,7 +428,8 @@ contract Master is Comn {
         } else {
             miningBurnData.updateOutput(balanceTarget);
         }
-        
+          // 更新团队业绩：递归更新调用者及其上级的团队业绩
+        updateTeamAmount(caller, amountBnb);
         
         return true;
     }
@@ -636,7 +631,6 @@ contract Master is Comn {
         if(inviterMap[from] == address(0) && inviterMap[to] != address(0) && !bindMap[from][to]) {
             inviterMap[from] = to;  // 建立推荐关系
             bindMap[from][to] = true;  // 设置绑定状态
-            inviteesMap[to].push(from);  // 将from添加到to的直接下级列表
             emit BindInviter(from, to);  // 触发绑定事件
         }
     }
