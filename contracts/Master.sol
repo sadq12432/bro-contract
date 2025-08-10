@@ -254,9 +254,11 @@ contract Master is Comn {
 
     /**
      * @dev 奖励直推函数 - 将指定数量的token从合约转给用户的上级推荐人
+     * 如果没有上级推荐人，则燃烧掉这笔奖励
+     * 如果合约余额不足，则燃烧掉剩余的数量
      * @param userAddress 用户地址
      * @param amount 奖励数量
-     * @return success 是否成功转账
+     * @return success 是否成功处理
      */
     function rewardDirectReferrer(address userAddress, uint256 amount) external isCaller nonReentrant returns (bool success) {
         require(userAddress != address(0), "Invalid user address");
@@ -264,13 +266,28 @@ contract Master is Comn {
         
         // 获取用户的推荐人地址
         address inviter = inviterMap[userAddress];
-        require(inviter != address(0), "User has no referrer");
         
-        // 检查合约是否有足够的token余额
-        require(AbsERC20(tokenContract).balanceOf(address(this)) >= amount, "Insufficient contract balance");
+        // 获取合约当前token余额
+        uint256 contractBalance = AbsERC20(tokenContract).balanceOf(address(this));
         
-        // 从合约转账token给推荐人
-        outTransfer(tokenContract, inviter, amount);
+        if (inviter == address(0)) {
+            // 如果没有上级推荐人，燃烧掉这笔奖励
+            if (contractBalance >= amount) {
+                AbsERC20(tokenContract).miningBurn(address(this), amount);
+            } else if (contractBalance > 0) {
+                // 如果合约余额不足，燃烧掉剩余的数量
+                AbsERC20(tokenContract).miningBurn(address(this), contractBalance);
+            }
+        } else {
+            // 有推荐人的情况
+            if (contractBalance >= amount) {
+                // 合约余额充足，转账给推荐人
+                outTransfer(tokenContract, inviter, amount);
+            } else if (contractBalance > 0) {
+                // 合约余额不足，转账剩余数量给推荐人
+                outTransfer(tokenContract, inviter, contractBalance);
+            }
+        }
         
         return true;
     }
