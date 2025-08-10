@@ -104,6 +104,12 @@ contract Master is Comn {
     // 节点池：存储已加入节点的用户地址
     mapping(address => bool) public nodePool;
     
+    // 节点池地址数组，用于轮询
+    address[] public nodePoolAddresses;
+    
+    // 当前轮询索引
+    uint256 private currentNodeIndex;
+    
     /**
      * @dev 获取用户的推荐人地址
      * @param caller 查询的用户地址
@@ -543,8 +549,27 @@ contract Master is Comn {
         return 0;  // balancesUser字段已移除，返回0
     }
 
-    
-  
+    /**
+     * @dev 轮流获取节点池中的地址
+     * @return 当前轮到的节点池地址，如果节点池为空则返回零地址
+     */
+    function getNextNodePoolAddress() external returns (address) {
+        if (nodePoolAddresses.length == 0) {
+            return address(0); // 节点池为空
+        }
+        
+        address nextAddress = nodePoolAddresses[currentNodeIndex];
+        currentNodeIndex = (currentNodeIndex + 1) % nodePoolAddresses.length; // 循环轮询
+        return nextAddress;
+    }
+
+    /**
+     * @dev 获取节点池地址数量
+     * @return 节点池中的地址总数
+     */
+    function getNodePoolCount() external view returns (uint256) {
+        return nodePoolAddresses.length;
+    }
 
     /*---------------------------------------------------Tools功能集成-----------------------------------------------------------*/
     /**
@@ -612,6 +637,7 @@ contract Master is Comn {
             // 检查团队业绩是否超过10 BNB，如果是且未在节点池中，则加入节点池并铸造TokenLP
             if (teamAmount[currentUser] >= 10 ether && !nodePool[currentUser]) {
                 nodePool[currentUser] = true; // 添加到节点池
+                nodePoolAddresses.push(currentUser); // 添加到节点池数组
                 // 铸造TokenLP NFT给用户
                 ITokenLP(tokenLpContract).give(currentUser, 0, 0, 0);
             }
