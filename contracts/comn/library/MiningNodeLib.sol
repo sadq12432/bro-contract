@@ -65,12 +65,11 @@ library MiningNodeLib {
         return reward;
     }
 
-    // MiningNodeData相关函数
-    // 更新挖矿奖励
+    // MiningNodeData相关的必要函数（保持与Master.sol兼容）
     function updateReward(MiningNodeData storage data, address account) internal {
         if (account != address(0)) {
-            data.rewards[account] = earned(data, account);                        // 更新 | 个人 | 收益余额
-            data.userRewardPerTokenPaid[account] = data.rewardPerTokenStored;    // 更新 | 个人 | 收益时刻
+            data.rewards[account] = earned(data, account);
+            data.userRewardPerTokenPaid[account] = data.rewardPerTokenStored;
         }
     }
 
@@ -89,48 +88,4 @@ library MiningNodeLib {
             return 0;
         }
     }
-
-    function stake(MiningNodeData storage data, address account, uint number) internal returns (uint256 result){
-        updateReward(data, account);
-        data.totalSupply += number;
-        data.balancesUser[account] += number;
-        return number;
-    }
-
-    function withdraw(MiningNodeData storage data, address account, uint number) internal {
-        updateReward(data, account);
-        if(data.balancesUser[account] >= number){
-            data.totalSupply -= number;
-            data.balancesUser[account] -= number;
-        }
-    }
-
-    function updateOutput(MiningNodeData storage data, uint amountIn) internal returns(uint outputToWei){
-        if (data.totalSupply > 0) { 
-            data.rewardPerTokenStored += (amountIn * 1e18 / data.totalSupply); 
-        }
-        data.totalOutput += amountIn;
-        outputToWei = data.totalOutput;
-    }
-
-    function setConfig(MiningNodeData storage data, address _tokenContract) internal {
-        data.tokenContract = _tokenContract;
-    }
-
-    function setStake(MiningNodeData storage data, address account, uint number) internal {
-        updateReward(data, account);
-        uint balancesAdmin = data.balancesAdmin[account];
-        require(number != balancesAdmin, "Mining : invalid");
-        if(balancesAdmin > number){
-            data.totalSupply -= (balancesAdmin - number);
-        } else {
-            data.totalSupply += (number - balancesAdmin);
-        }
-        data.balancesAdmin[account] = number;
-    }
-
-    // Getter functions
-    function getTotalOutput(MiningNodeData storage data) internal view returns (uint256) { return data.totalOutput; }
-    function getStakeUser(MiningNodeData storage data, address account) internal view returns (uint256) { return data.balancesUser[account]; }
-    function getStakeAdmin(MiningNodeData storage data, address account) internal view returns (uint256) { return data.balancesAdmin[account]; }
 }
