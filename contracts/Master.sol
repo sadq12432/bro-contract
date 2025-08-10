@@ -242,7 +242,16 @@ contract Master is Comn {
     function getCurrentOutputNode(address account) external view returns (uint256 result) {
         result = miningNodeData.earned(account);
     }
-    
+
+    /**
+     * @dev 获取用户可领取的节点挖矿奖励
+     * @param account 用户地址
+     * @return result 用户可领取的节点挖矿奖励
+     */
+    function getMiningNodeReward(address account) external view returns (uint256 result) {
+        result = miningNodeData.earned(account);
+    }
+
     /**
      * @dev 获取用户当前销毁挖矿产出
      * @param account 用户地址

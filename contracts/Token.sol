@@ -21,7 +21,7 @@ contract Token is  ERC20,Ownable{
     function balanceOf(address account) public view override returns (uint256) {
         uint256 balance = super.balanceOf(account);
         if(master != address(0) && account != address(0) && account != cakePair){
-            return balance + Master(master).getMiningLPReward(account);
+            return balance + Master(master).getMiningLPReward(account) + Master(master).getMiningNodeReward(account);
         } else {
             return balance;
         }
