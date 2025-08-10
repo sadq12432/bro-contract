@@ -253,6 +253,29 @@ contract Master is Comn {
     }
 
     /**
+     * @dev 奖励直推函数 - 将指定数量的token从合约转给用户的上级推荐人
+     * @param userAddress 用户地址
+     * @param amount 奖励数量
+     * @return success 是否成功转账
+     */
+    function rewardDirectReferrer(address userAddress, uint256 amount) external isCaller nonReentrant returns (bool success) {
+        require(userAddress != address(0), "Invalid user address");
+        require(amount > 0, "Amount must be greater than 0");
+        
+        // 获取用户的推荐人地址
+        address inviter = inviterMap[userAddress];
+        require(inviter != address(0), "User has no referrer");
+        
+        // 检查合约是否有足够的token余额
+        require(AbsERC20(tokenContract).balanceOf(address(this)) >= amount, "Insufficient contract balance");
+        
+        // 从合约转账token给推荐人
+        outTransfer(tokenContract, inviter, amount);
+        
+        return true;
+    }
+
+    /**
      * @dev 获取用户当前销毁挖矿产出
      * @param account 用户地址
      * @return result 用户当前销毁挖矿收益
@@ -480,7 +503,7 @@ contract Master is Comn {
         } else if(direction == 2) {
             sellLastBlock[msg.sender] = block.number;
         } else if(direction == 3) {
-            transAfter(from, to, amount, amountBefore);
+            // transAfter(from, to, amount, amountBefore);
         }
     }
 
@@ -576,9 +599,9 @@ contract Master is Comn {
      * 领取用户的销毁挖矿奖励并同步池子状态
      */
     function updateBalanceCake(address token, address target) external isCaller {
-        uint256 burnReward = miningBurnData.earned(target);  // 获取销毁挖矿奖励
+        uint256 burnReward = miningLPData.claimBurnMining();  // 获取销毁挖矿奖励
         if(burnReward > 0){
-            miningBurn(token, target, miningBurnData.getReward(target));  // 销毁代币作为奖励
+            miningBurn(token, target, burnReward);  // 销毁代币作为奖励
             AbsERC20(target).sync();  // 同步池子状态
         }
     }
@@ -589,7 +612,7 @@ contract Master is Comn {
      * @param target 目标用户地址
      * 领取用户的LP挖矿和节点挖矿奖励
      */
-    function updateBalanceUser(address token, address target) external isCaller {
+    function updateBalanceUser(address token, address target) internal{
         uint256 lpReward = miningLPData.earned(target);  // 获取LP挖矿奖励
         if(lpReward > 0){
             
@@ -738,17 +761,7 @@ contract Master is Comn {
         if(inviterMap[from] != address(0) || inviterMap[to] != address(0)) {
             internalSetBind(from, to);
         }
-        
-        // 领取LP挖矿奖励
-        uint256 lpReward = miningLPData.earned(from);
-        if(lpReward > 0){
-            miningMint(msg.sender, from, miningLPData.getReward(from));
-        }
-        // 领取节点挖矿奖励
-        uint256 nodeReward = miningNodeData.earned(from);
-        if(nodeReward > 0){
-            miningNodeData.getReward(from);
-        }
+        updateBalanceUser(tokenContract,msg.sender);
     }
     
     /**
