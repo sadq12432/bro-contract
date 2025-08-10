@@ -488,7 +488,7 @@ contract Master is Comn {
         miningLPData.initialize();
         
         // 初始化MiningNode数据
-        miningNodeData.tokenContract = _tokenContract;
+        // tokenContract已移除，不再需要设置
     }
     
     // 公共访问器函数
@@ -513,7 +513,7 @@ contract Master is Comn {
      * @return 节点挖矿池的总供应量
      */
     function getMiningNodeTotalSupply() external view returns (uint256) {
-        return miningNodeData.totalSupply;  // 返回节点挖矿总供应量
+        return 0;  // totalSupply字段已移除，返回0
     }
     
     /**
@@ -540,7 +540,7 @@ contract Master is Comn {
      * @return 用户在节点挖矿池的质押余额
      */
     function getMiningNodeUserBalance(address account) external view returns (uint256) {
-        return miningNodeData.balancesUser[account];  // 返回用户节点挖矿余额
+        return 0;  // balancesUser字段已移除，返回0
     }
 
     

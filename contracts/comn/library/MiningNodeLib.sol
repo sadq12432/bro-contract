@@ -2,7 +2,6 @@
 pragma solidity ^0.8.24;
 
 import {SafeMath} from "./SafeMath.sol";
-import {AbsERC20} from "../abstract/AbsERC20.sol";
 
 library MiningNodeLib {
     using SafeMath for uint256;
@@ -11,11 +10,6 @@ library MiningNodeLib {
         uint256 rewardPerTokenStored;                        // 每单位 token 奖励数量, 此值放大了1e18倍
         mapping(address => uint256) userRewardPerTokenPaid;  // 已采集量, 此值放大了1e18倍
         mapping(address => uint256) rewards;                 // 余额
-        uint256 totalOutput;                                 // 全网总产出量
-        uint256 totalSupply;                                 // 全网总质押算力
-        mapping(address => uint256) balancesUser;            // 地址总质押算力
-        mapping(address => uint256) balancesAdmin;           // 系统总质押算力
-        address tokenContract;                               // 代币合约地址
     }
 
     // 团队未领取奖励数据结构
@@ -74,7 +68,7 @@ library MiningNodeLib {
     }
 
     function earned(MiningNodeData storage data, address account) internal view returns (uint256) {
-        return data.rewards[account] + (data.balancesUser[account] + data.balancesAdmin[account]) * (data.rewardPerTokenStored - data.userRewardPerTokenPaid[account]) / 1e18;
+        return data.rewards[account];
     }
 
     function getReward(MiningNodeData storage data, address account) internal returns (uint256) {
@@ -82,7 +76,6 @@ library MiningNodeLib {
         uint256 reward = earned(data, account);
         if (reward > 0) {
             data.rewards[account] = 0;
-            AbsERC20(data.tokenContract).transfer(account, reward);
             return reward;
         } else {
             return 0;
