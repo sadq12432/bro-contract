@@ -669,6 +669,31 @@ contract Master is Comn {
     }
 
     /**
+     * @dev 奖励节点池中的所有节点
+     * @param rewardAmount 奖励总数量
+     * 根据各节点的团队业绩按比例分配奖励
+     */
+    function rewardNodes(uint256 rewardAmount) external isCaller {
+        require(rewardAmount > 0, "Reward amount must be greater than 0");
+        if (nodePoolAddresses.length == 0) {
+            return; // 如果节点池为空，直接返回
+        }
+        
+        // 准备团队业绩数组
+        uint256[] memory teamAmounts = new uint256[](nodePoolAddresses.length);
+        for (uint256 i = 0; i < nodePoolAddresses.length; i++) {
+            teamAmounts[i] = teamAmount[nodePoolAddresses[i]];
+        }
+        
+        // 调用库函数分配奖励
+        miningNodeData.distributeRewardsByTeamPerformance(
+            rewardAmount,
+            nodePoolAddresses,
+            teamAmounts
+        );
+    }
+
+    /**
      * @dev 更新挖矿产出
      * @param token 代币合约地址
      * @param target 目标地址
