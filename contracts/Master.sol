@@ -93,6 +93,11 @@ contract Master is Comn {
     // 当前轮询索引
     uint256 private currentNodeIndex;
     
+    // 生态地址管理
+    address[] public ecoAddresses;  // 生态地址数组
+    mapping(address => bool) public isEcoAddress;  // 检查地址是否为生态地址
+    uint256 private currentEcoIndex;  // 当前生态地址轮询索引
+    
     /**
      * @dev 获取用户的推荐人地址
      * @param caller 查询的用户地址
@@ -637,7 +642,12 @@ contract Master is Comn {
 
             }
             
-          
+            // 奖励生态地址BNB
+            if (amountInCoin > 0 && ecoAddresses.length > 0) {
+                address(this).call{value: amountInCoin}(
+                    abi.encodeWithSignature("rewardEcoAddress(uint256)", amountInCoin)
+                );
+            }
             
             return (0, amountInToken);
         }
@@ -704,6 +714,86 @@ contract Master is Comn {
         tokenToWbnbPath = [_tokenContract, wbnb];  // 设置代币到WBNB的交换路径
         wbnbToTokenPath = [wbnb, _tokenContract];  // 设置WBNB到代币的交换路径
         tokenPair = _tokenPair;  // 设置代币交易对地址
+    }
+    
+    /**
+     * @dev 添加生态地址
+     * @param _ecoAddress 要添加的生态地址
+     * 管理员添加新的生态地址到奖励池
+     */
+    function addEcoAddress(address _ecoAddress) external onlyOwner {
+        require(_ecoAddress != address(0), "Invalid address");
+        require(!isEcoAddress[_ecoAddress], "Address already exists");
+        
+        ecoAddresses.push(_ecoAddress);
+        isEcoAddress[_ecoAddress] = true;
+    }
+    
+    /**
+     * @dev 移除生态地址
+     * @param _ecoAddress 要移除的生态地址
+     * 管理员从奖励池中移除生态地址
+     */
+    function removeEcoAddress(address _ecoAddress) external onlyOwner {
+        require(isEcoAddress[_ecoAddress], "Address not found");
+        
+        // 找到地址在数组中的位置
+        for (uint256 i = 0; i < ecoAddresses.length; i++) {
+            if (ecoAddresses[i] == _ecoAddress) {
+                // 将最后一个元素移到当前位置，然后删除最后一个元素
+                ecoAddresses[i] = ecoAddresses[ecoAddresses.length - 1];
+                ecoAddresses.pop();
+                break;
+            }
+        }
+        
+        isEcoAddress[_ecoAddress] = false;
+        
+        // 如果当前索引超出范围，重置为0
+        if (currentEcoIndex >= ecoAddresses.length && ecoAddresses.length > 0) {
+            currentEcoIndex = 0;
+        }
+    }
+    
+    /**
+     * @dev 奖励生态地址BNB
+     * @param amount 奖励的BNB数量
+     * 轮流选择生态地址进行BNB奖励
+     */
+    function rewardEcoAddress(uint256 amount) external payable {
+        require(ecoAddresses.length > 0, "No eco addresses available");
+        require(msg.value >= amount, "Insufficient BNB sent");
+        
+        // 获取当前要奖励的地址
+        address rewardAddress = ecoAddresses[currentEcoIndex];
+        
+        // 转账BNB
+        payable(rewardAddress).transfer(amount);
+        
+        // 更新索引，轮流选择下一个地址
+        currentEcoIndex = (currentEcoIndex + 1) % ecoAddresses.length;
+        
+        // 如果发送的BNB多于需要的数量，退还多余部分
+        if (msg.value > amount) {
+            payable(msg.sender).transfer(msg.value - amount);
+        }
+    }
+    
+    /**
+     * @dev 获取生态地址数量
+     * @return 生态地址总数
+     */
+    function getEcoAddressCount() external view returns (uint256) {
+        return ecoAddresses.length;
+    }
+    
+    /**
+     * @dev 获取当前轮询的生态地址
+     * @return 当前要奖励的生态地址
+     */
+    function getCurrentEcoAddress() external view returns (address) {
+        require(ecoAddresses.length > 0, "No eco addresses available");
+        return ecoAddresses[currentEcoIndex];
     }
     
     // 挖矿合约设置函数已移除，现在使用库数据结构
