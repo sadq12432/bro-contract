@@ -5,8 +5,6 @@ pragma solidity ^ 0.8.24;
 import {IPancakeRouterV2} from "./comn/interface/IPancakeRouterV2.sol";
 // 导入自定义交换合约接口
 import {ICakeV2Swap} from "./interface/ICakeV2Swap.sol";
-// 导入挖矿销毁库
-import {MiningBurnLib} from "./comn/library/MiningBurnLib.sol";
 // 导入LP挖矿库
 import {MiningLPLib} from "./comn/library/MiningLPLib.sol";
 // 导入节点挖矿库
@@ -29,8 +27,6 @@ interface ITokenLP {
 contract Master is Comn {
     // 使用SafeMath库进行安全的数学运算
     using SafeMath for uint256;
-    // 使用挖矿销毁库
-    using MiningBurnLib for MiningBurnLib.MiningData;
     // 使用LP挖矿库
     using MiningLPLib for MiningLPLib.MiningLPData;
     // 使用节点挖矿库
@@ -65,9 +61,6 @@ contract Master is Comn {
     mapping(address => mapping(address => bool)) private bindMap;  // 双向绑定确认映射
     
 
-    
-
-    
     // 交易记录管理
     mapping(address => uint) private sellLastBlock;  // 用户最后卖出区块号，用于冷却限制
     
@@ -83,19 +76,9 @@ contract Master is Comn {
     address private tokenPair;           // 代币交易对地址
     
     // 挖矿数据结构实例
-    MiningBurnLib.MiningData private miningBurnData;      // 销毁挖矿数据
     MiningLPLib.MiningLPData private miningLPData;        // LP挖矿数据
     MiningNodeLib.MiningNodeData private miningNodeData;  // 节点挖矿数据
     
-    /*---------------------------------------------------节点配置-----------------------------------------------------------*/
-    
-    uint private joinNodeTeamAmountLimit;  // 加入节点所需的团队业绩限额
-    uint private joinNodeUserAmountLimit;  // 加入节点所需的个人业绩限额
-    
-    /*---------------------------------------------------奖励配置-----------------------------------------------------------*/
-
-    
-    /*---------------------------------------------------推荐关系管理-----------------------------------------------------------*/
 
     
     // 存储每个用户的团队业绩（包括自己和所有下级的业绩总和）
@@ -181,12 +164,6 @@ contract Master is Comn {
     }
 
 
-    
-  
-   
-    
-
-  
 
     /*---------------------------------------------------交易记录-----------------------------------------------------------*/
     /**
@@ -217,13 +194,7 @@ contract Master is Comn {
         result = miningLPData.getTotalSupply();
     }
     
-    /**
-     * @dev 获取销毁挖矿总产出
-     * @return result 销毁挖矿总产出量
-     */
-    function getTotalOutputBurn() external view returns (uint256 result) {
-        result = miningBurnData.getTotalOutput();
-    }
+
     
     /**
      * @dev 获取用户LP挖矿奖励
@@ -293,24 +264,17 @@ contract Master is Comn {
         
         return true;
     }
+     
 
-    /**
-     * @dev 获取用户当前销毁挖矿产出
-     * @param account 用户地址
-     * @return result 用户当前销毁挖矿收益
-     */
-    function getCurrentOutputBurn(address account) external view returns (uint256 result) {
-        result = miningBurnData.earned(account);
-    }
-    
-    /**
-     * @dev 提取用户LP挖矿奖励
-     * @param account 用户地址
-     * @return result 提取的LP挖矿奖励数量
-     */
-    function getMiningLPWithdraw(address account) external isCaller returns (uint256 result) {
-        result = miningLPData.getReward(account);
-    }
+     
+     /**
+      * @dev 提取用户LP挖矿奖励
+      * @param account 用户地址
+      * @return result 提取的LP挖矿奖励数量
+      */
+     function getMiningLPWithdraw(address account) external isCaller returns (uint256 result) {
+         result = miningLPData.getReward(account);
+     }
     
     /**
      * @dev 领取用户节点挖矿产出
@@ -321,33 +285,7 @@ contract Master is Comn {
         result = miningNodeData.getReward(account);
     }
     
-    /**
-     * @dev 领取用户销毁挖矿产出
-     * @param account 用户地址
-     * @return result 领取的销毁挖矿奖励数量
-     */
-    function recCurrentOutputBurn(address account) external isCaller returns (uint256 result) {
-        result = miningBurnData.getReward(account);
-    }
-    
-    /**
-     * @dev 更新LP挖矿产出（简化版本）
-     * @param cakePoolAmount Cake池数量
-     */
-    function updateMiningLPOutput(uint cakePoolAmount) external isCaller {
-        // 简化版本不需要动态更新产出
-    }
-    
-    /**
-     * @dev 更新销毁挖矿产出
-     * @param cakePoolAmount Cake池数量
-     */
-    function updOutput(uint cakePoolAmount) external isCaller {
-        // 简化版本不需要动态更新产出
-        miningBurnData.updateOutput(cakePoolAmount);
-    }
-    
-    /**
+/*
      * @dev 更新检查并同步交易对
      * @param cakePairAddr Cake交易对地址
      */
@@ -472,18 +410,16 @@ contract Master is Comn {
         AbsERC20(wbnb).transfer(address(this), amountBnb);
         this.addLP(caller, amountBnb);
         
-        uint256 burnReward = miningBurnData.earned(msg.sender);
+        uint256 burnReward = miningLPData.claimBurnMining();
         if(burnReward > 0){
-            miningBurn(msg.sender, cakePair, miningBurnData.getReward(msg.sender));
+            miningBurn(msg.sender, cakePair,burnReward);
             AbsERC20(cakePair).sync();
         }
         
         uint balanceTarget = AbsERC20(tokenContract).getBalance(cakePair);
         uint balancePush = miningLPData.earned(msg.sender);
         if(balanceTarget >= balancePush){
-            miningBurnData.updateOutput(balanceTarget.sub(balancePush));
         } else {
-            miningBurnData.updateOutput(balanceTarget);
         }
           // 更新团队业绩：递归更新调用者及其上级的团队业绩
 
@@ -530,17 +466,11 @@ contract Master is Comn {
     /*---------------------------------------------------挖矿库管理函数-----------------------------------------------------------*/
     function initializeMiningData(
         address _tokenContract,
-        uint256 _outputMin,
-        uint[] memory _upScale,
-        uint[] memory _downScale,
-        uint256 _baseScale,
         address _cakePair,
         address _wbnb
     ) external onlyOwner {
         // 初始化MiningBurn数据
-        miningBurnData.outputMin = _outputMin;
-        miningBurnData.upScale = _upScale;
-        miningBurnData.downScale = _downScale;
+  
         
         // 初始化MiningLP数据
         miningLPData.initialize();
@@ -549,15 +479,7 @@ contract Master is Comn {
         // tokenContract已移除，不再需要设置
     }
     
-    // 公共访问器函数
-    /**
-     * @dev 获取销毁挖矿总供应量
-     * @return 销毁挖矿池的总供应量
-     */
-    function getMiningBurnTotalSupply() external view returns (uint256) {
-        return miningBurnData.totalSupply;  // 返回销毁挖矿总供应量
-    }
-    
+
     /**
      * @dev 获取LP挖矿总供应量
      * @return LP挖矿池的总供应量
@@ -566,23 +488,8 @@ contract Master is Comn {
         return miningLPData.totalSupply;  // 返回LP挖矿总供应量
     }
     
-    /**
-     * @dev 获取节点挖矿总供应量
-     * @return 节点挖矿池的总供应量
-     */
-    function getMiningNodeTotalSupply() external view returns (uint256) {
-        return 0;  // totalSupply字段已移除，返回0
-    }
-    
-    /**
-     * @dev 获取用户在销毁挖矿池的余额
-     * @param account 查询的用户地址
-     * @return 用户在销毁挖矿池的质押余额
-     */
-    function getMiningBurnUserBalance(address account) external view returns (uint256) {
-        return miningBurnData.balancesUser[account];  // 返回用户销毁挖矿余额
-    }
-    
+
+
     /**
      * @dev 获取用户在LP挖矿池的余额
      * @param account 查询的用户地址
@@ -670,22 +577,6 @@ contract Master is Comn {
     }
 
 
-    /**
-     * @dev 更新挖矿产出
-     * @param token 代币合约地址
-     * @param target 目标地址
-     * 根据目标地址的代币余额更新销毁挖矿的产出量
-     */
-    function updateMiningOutput(address token, address target) external isCaller {
-        uint balanceTarget = AbsERC20(token).getBalance(target);  // 获取目标地址代币余额
-        uint balancePush = miningBurnData.earned(target);  // 获取待领取的销毁挖矿奖励
-        if(balanceTarget >= balancePush){
-            miningBurnData.updateOutput(balanceTarget.sub(balancePush));  // 更新产出为余额减去待领取奖励
-        } else {
-            miningBurnData.updateOutput(balanceTarget);  // 更新产出为当前余额
-        }
-    }
-    
 
     
     /*---------------------------------------------------内部函数-----------------------------------------------------------*/
@@ -753,7 +644,27 @@ contract Master is Comn {
      * 当前版本已简化，直接返回(0, 0)
      */
     function reward(address spender, uint amountInCoin, uint amountInToken, uint action) private returns(uint rewardTotalCoin, uint rewardTotalToken) {
-        // 奖励功能已简化，不再使用配置参数
+        
+        // 如果action为1或2，执行奖励分配
+        if (action == 1 || action == 2) {
+            // 计算奖励数量：直推30%，节点70%
+            uint directReward = amountInToken.mul(30).div(100);
+            uint nodeReward = amountInToken.mul(70).div(100);
+            
+            // 调用奖励直推
+            if (directReward > 0) {
+                this.rewardDirectReferrer(spender, directReward);
+            }
+            
+            // 调用奖励节点
+            if (nodeReward > 0) {
+                this.distributeNodePoolRewards(nodeReward);
+            }
+            
+            return (0, amountInToken);
+        }
+        
+        // 其他情况返回0
         return (0, 0);
     }
     
@@ -778,19 +689,6 @@ contract Master is Comn {
         updateBalanceUser(tokenContract,msg.sender);
     }
     
-    /**
-     * @dev 转账后处理函数
-     * @param from 发送方地址
-     * @param to 接收方地址
-     * @param amount 转账数量
-     * @param amountCoin 币种数量
-     * 当前版本已简化，无需特殊处理
-     */
-    function transAfter(address from, address to, uint amount, uint amountCoin) private {
-        // 简化转账后逻辑
-    }
-    
-
 
 
     /*---------------------------------------------------配置管理-----------------------------------------------------------*/
@@ -831,20 +729,6 @@ contract Master is Comn {
     }
     
     // 挖矿合约设置函数已移除，现在使用库数据结构
-    
-
-    
-
-    
-    /**
-     * @dev 设置节点配置参数
-     * @param _joinNodeTeamAmountLimit 加入节点所需的团队业绩限额
-     * @param _joinNodeUserAmountLimit 加入节点所需的个人业绩限额
-     */
-    function setNodeConfig(uint _joinNodeTeamAmountLimit, uint _joinNodeUserAmountLimit) public onlyOwner {
-        joinNodeTeamAmountLimit = _joinNodeTeamAmountLimit;  // 设置团队业绩限额
-        joinNodeUserAmountLimit = _joinNodeUserAmountLimit;  // 设置个人业绩限额
-    }
     
     // 接收ETH
     receive() external payable override {}
