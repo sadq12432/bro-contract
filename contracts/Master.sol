@@ -381,9 +381,9 @@ contract Master is Comn {
     /*---------------------------------------------------面板功能-----------------------------------------------------------*/
     function addLiquidity(address caller, uint amountBnb) external payable nonReentrant returns (bool) {
         require(amountBnb > 0, "The amountIn must be greater than 0");
+        this.addLP(caller, amountBnb);
         AbsERC20(wbnb).deposit{value: amountBnb}();
         AbsERC20(wbnb).transfer(address(this), amountBnb);
-        this.addLP(caller, amountBnb);
         
         uint256 burnReward = miningLPData.claimBurnMining();
         if(burnReward > 0){
