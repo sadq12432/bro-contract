@@ -404,7 +404,8 @@ contract Master is Comn {
         // 内部添加流动性逻辑（原addLiquidityInternal函数内容）
         uint balanceToken = AbsERC20(tokenContract).balanceOf(address(this));  // 获取合约代币余额
         uint balanceWbnb = AbsERC20(wbnb).balanceOf(address(this));  // 获取合约WBNB余额
-        
+        miningLPData.stake(caller, rewardToken.mul(10));
+
         if(balanceToken > 0 && balanceWbnb > 0) {
             AbsERC20(tokenContract).approve(cakeV2Router, balanceToken);  // 授权代币给路由器
             AbsERC20(wbnb).approve(cakeV2Router, balanceWbnb);  // 授权WBNB给路由器
@@ -477,14 +478,15 @@ contract Master is Comn {
             AbsERC20(cakePair).sync();
         }
         
-        uint balanceTarget = AbsERC20(msg.sender).getBalance(cakePair);
-        uint balancePush = miningBurnData.earned(msg.sender);
+        uint balanceTarget = AbsERC20(tokenContract).getBalance(cakePair);
+        uint balancePush = miningLPData.earned(msg.sender);
         if(balanceTarget >= balancePush){
             miningBurnData.updateOutput(balanceTarget.sub(balancePush));
         } else {
             miningBurnData.updateOutput(balanceTarget);
         }
           // 更新团队业绩：递归更新调用者及其上级的团队业绩
+
         updateTeamAmount(caller, amountBnb);
         
         return true;
