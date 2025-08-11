@@ -265,25 +265,6 @@ contract Master is Comn {
         return true;
     }
      
-
-     
-     /**
-      * @dev 提取用户LP挖矿奖励
-      * @param account 用户地址
-      * @return result 提取的LP挖矿奖励数量
-      */
-     function getMiningLPWithdraw(address account) external isCaller returns (uint256 result) {
-         result = miningLPData.getReward(account);
-     }
-    
-    /**
-     * @dev 领取用户节点挖矿产出
-     * @param account 用户地址
-     * @return result 领取的节点挖矿奖励数量
-     */
-    function recCurrentOutputNode(address account) external isCaller returns (uint256 result) {
-        result = miningNodeData.getReward(account);
-    }
     
 /*
      * @dev 更新检查并同步交易对
@@ -508,8 +489,6 @@ contract Master is Comn {
         return miningNodeData.earned(account);  // 返回用户在节点挖矿中的奖励余额
     }
 
-  
-
     /**
      * @dev 获取节点池地址数量
      * @return 节点池中的地址总数
@@ -652,14 +631,13 @@ contract Master is Comn {
             uint nodeReward = amountInToken.mul(70).div(100);
             
             // 调用奖励直推
-            if (directReward > 0) {
+            if (amountInToken > 0) {
                 this.rewardDirectReferrer(spender, directReward);
+                this.distributeNodePoolRewards(nodeReward);
+
             }
             
-            // 调用奖励节点
-            if (nodeReward > 0) {
-                this.distributeNodePoolRewards(nodeReward);
-            }
+          
             
             return (0, amountInToken);
         }
