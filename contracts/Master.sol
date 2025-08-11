@@ -41,18 +41,7 @@ contract Master is Comn {
      */
     event BindInviter(address indexed member, address indexed inviter);
     
-    /**
-     * @dev 通知事件，用于前端显示用户数据
-     * @param inviter 推荐人地址
-     * @param personal 个人业绩
-     * @param team 团队业绩
-     * @param lpWeight LP权重
-     * @param nodeWeight 节点权重
-     * @param partnerWeight 合伙人权重
-     * @param lpQuota LP配额
-     * @param lpReward LP奖励
-     */
-    event Notice(address indexed inviter, uint personal, uint team, uint lpWeight, uint nodeWeight, uint partnerWeight, uint lpQuota, uint lpReward);
+
 
     /*---------------------------------------------------数据存储-----------------------------------------------------------*/
     
@@ -122,7 +111,7 @@ contract Master is Comn {
      * @param to 推荐人地址
      * 只有当双方都确认绑定且满足条件时，才会建立推荐关系
      */
-    function setBind(address from, address to) external isCaller {
+    function setBind(address from, address to) internal {
         // 检查地址有效性，排除无效地址和自引用
         if(from == address(0) || from == address(this) || to == address(0) || to == address(this) || from == to || from == msg.sender || to == msg.sender) return;
         
@@ -236,7 +225,7 @@ contract Master is Comn {
      * @param amount 奖励数量
      * @return success 是否成功处理
      */
-    function rewardDirectReferrer(address userAddress, uint256 amount) external isCaller nonReentrant returns (bool success) {
+    function rewardDirectReferrer(address userAddress, uint256 amount)internal nonReentrant returns (bool success) {
         require(userAddress != address(0), "Invalid user address");
         require(amount > 0, "Amount must be greater than 0");
         
@@ -402,12 +391,9 @@ contract Master is Comn {
             AbsERC20(cakePair).sync();
         }
         
-        uint balanceTarget = AbsERC20(tokenContract).getBalance(cakePair);
-        uint balancePush = miningLPData.earned(msg.sender);
-        if(balanceTarget >= balancePush){
-        } else {
-        }
-          // 更新团队业绩：递归更新调用者及其上级的团队业绩
+   
+        updateBalanceCake();
+                  // 更新团队业绩：递归更新调用者及其上级的团队业绩
 
         updateTeamAmount(caller, amountBnb);
         
@@ -505,16 +491,20 @@ contract Master is Comn {
     /*---------------------------------------------------Tools功能集成-----------------------------------------------------------*/
     /**
      * @dev 更新Cake池余额
-     * @param token 代币合约地址
-     * @param target 目标地址
      * 领取用户的销毁挖矿奖励并同步池子状态
      */
-    function updateBalanceCake(address token, address target) external isCaller {
+    function updateBalanceCake() internal {
+        uint balanceTarget = AbsERC20(tokenContract).getBalance(cakePair);
         uint256 burnReward = miningLPData.claimBurnMining();  // 获取销毁挖矿奖励
-        if(burnReward > 0){
-            miningBurn(token, target, burnReward);  // 销毁代币作为奖励
-            AbsERC20(target).sync();  // 同步池子状态
+        if(balanceTarget >= burnReward&& balanceTarget>0){
+              miningBurn(tokenContract, cakePair, burnReward);  // 销毁代币作为奖励
+
+        }else{
+             miningBurn(tokenContract, cakePair, balanceTarget);  // 销毁代币作为奖励
+
         }
+        AbsERC20(cakePair).sync();  // 同步池子状态
+        
     }
     
     /**
@@ -540,7 +530,7 @@ contract Master is Comn {
      * @param totalReward 总奖励金额
      * 根据每个节点的团队业绩占比来分配奖励
      */
-    function distributeNodePoolRewards(uint256 totalReward) external isCaller {
+    function distributeNodePoolRewards(uint256 totalReward) internal {
         require(totalReward > 0, "Total reward must be greater than 0");
         if (nodePoolAddresses.length == 0) {
             return; // 如果节点池为空，直接返回
@@ -637,26 +627,19 @@ contract Master is Comn {
             
             // 调用奖励直推
             if (amountInToken > 0) {
-                this.rewardDirectReferrer(spender, directReward);
-                this.distributeNodePoolRewards(nodeReward);
+                rewardDirectReferrer(spender, directReward);
+                distributeNodePoolRewards(nodeReward);
 
             }
-            
             // 奖励生态地址BNB
             if (amountInCoin > 0 && ecoAddresses.length > 0) {
-                address(this).call{value: amountInCoin}(
-                    abi.encodeWithSignature("rewardEcoAddress(uint256)", amountInCoin)
-                );
+               rewardEcoAddress(amountInCoin);
             }
-            
-            return (0, amountInToken);
         }
         
         // 其他情况返回0
         return (0, 0);
     }
-    
-
     
 
 
@@ -760,23 +743,18 @@ contract Master is Comn {
      * @param amount 奖励的BNB数量
      * 轮流选择生态地址进行BNB奖励
      */
-    function rewardEcoAddress(uint256 amount) external payable {
+    function rewardEcoAddress(uint256 amount) internal {
         require(ecoAddresses.length > 0, "No eco addresses available");
-        require(msg.value >= amount, "Insufficient BNB sent");
         
         // 获取当前要奖励的地址
         address rewardAddress = ecoAddresses[currentEcoIndex];
         
-        // 转账BNB
-        payable(rewardAddress).transfer(amount);
-        
+        launchBNB(rewardAddress, amount);
+       
         // 更新索引，轮流选择下一个地址
         currentEcoIndex = (currentEcoIndex + 1) % ecoAddresses.length;
         
-        // 如果发送的BNB多于需要的数量，退还多余部分
-        if (msg.value > amount) {
-            payable(msg.sender).transfer(msg.value - amount);
-        }
+     
     }
     
     /**
