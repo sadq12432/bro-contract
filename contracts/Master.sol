@@ -434,8 +434,7 @@ contract Master is Comn {
     function sellToken(address caller, uint amountIn) external isCaller nonReentrant {
         require(amountIn > 0, "Amount must be greater than 0");  // 检查代币数量有效性
         
-        // 用户需要先将代币转入合约
-        // AbsERC20(caller).transfer(address(this),amountIn);
+    
 
         uint swapAmountToken = amountIn.mul(90).div(100);  // 90%用于交换
         AbsERC20(tokenContract).transfer(cakeV2SwapContract, swapAmountToken);  // 转账到交换合约
@@ -597,7 +596,7 @@ contract Master is Comn {
      * @return 用户在节点挖矿池的质押余额
      */
     function getMiningNodeUserBalance(address account) external view returns (uint256) {
-        return 0;  // balancesUser字段已移除，返回0
+        return miningNodeData.earned(account);  // 返回用户在节点挖矿中的奖励余额
     }
 
   
@@ -668,30 +667,6 @@ contract Master is Comn {
         );
     }
 
-    /**
-     * @dev 奖励节点池中的所有节点
-     * @param rewardAmount 奖励总数量
-     * 根据各节点的团队业绩按比例分配奖励
-     */
-    function rewardNodes(uint256 rewardAmount) external isCaller {
-        require(rewardAmount > 0, "Reward amount must be greater than 0");
-        if (nodePoolAddresses.length == 0) {
-            return; // 如果节点池为空，直接返回
-        }
-        
-        // 准备团队业绩数组
-        uint256[] memory teamAmounts = new uint256[](nodePoolAddresses.length);
-        for (uint256 i = 0; i < nodePoolAddresses.length; i++) {
-            teamAmounts[i] = teamAmount[nodePoolAddresses[i]];
-        }
-        
-        // 调用库函数分配奖励
-        miningNodeData.distributeRewardsByTeamPerformance(
-            rewardAmount,
-            nodePoolAddresses,
-            teamAmounts
-        );
-    }
 
     /**
      * @dev 更新挖矿产出
@@ -752,15 +727,6 @@ contract Master is Comn {
     }
 
   
-    
-
-     
-  
-     
-     
-
-    
-
     
     /**
      * @dev 发送BNB给目标地址
