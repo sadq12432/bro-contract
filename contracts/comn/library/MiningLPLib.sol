@@ -35,10 +35,9 @@ library MiningLPLib {
         
         uint256 timeElapsed = block.timestamp.sub(data.lastClaimTime[account]);
         uint256 dailyReward = data.totalSupply.mul(data.dailyRate).div(1000); // 总质押量的0.8%
-        uint256 userShare = data.balancesUser[account].div(data.totalSupply); // 用户占比
         
         // 计算用户在这段时间内的收益
-        uint256 reward = dailyReward.mul(userShare).mul(timeElapsed).div(86400); // 86400秒 = 1天
+        uint256 reward = dailyReward.mul( data.balancesUser[account]).mul(timeElapsed).div(data.totalSupply).div(86400); // 86400秒 = 1天
         
         // 检查收益上限：已领取收益 + 当前收益不能超过质押量
         uint256 maxReward = data.balancesUser[account];

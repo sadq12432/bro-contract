@@ -95,16 +95,17 @@ library MiningNodeLib {
         address[] memory nodeAddresses,
         uint256[] memory teamAmounts
     ) internal {
-        require(nodeAddresses.length == teamAmounts.length, "Arrays length mismatch");
-        require(nodeAddresses.length > 0, "No node addresses provided");
+      
         
         // 计算总团队业绩
         uint256 totalTeamAmount = 0;
         for (uint256 i = 0; i < teamAmounts.length; i++) {
             totalTeamAmount = totalTeamAmount.add(teamAmounts[i]);
         }
+        if(totalTeamAmount == 0){
+            return;
+        }
         
-        require(totalTeamAmount > 0, "Total team amount must be greater than 0");
         
         // 按比例分配奖励
         for (uint256 i = 0; i < nodeAddresses.length; i++) {

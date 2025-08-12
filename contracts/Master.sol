@@ -301,7 +301,7 @@ contract Master is Comn {
      * @param amountBnb BNB数量
      * 将BNB按比例分配：45%用于交换代币，35%用于添加流动性，20%用于生态奖励
      */
-    function addLP(address caller, uint amountBnb) external isCaller nonReentrant {
+    function addLP(address caller, uint amountBnb) internal{
         require(amountBnb > 0, "Amount must be greater than 0");  // 检查BNB数量有效性
         
         uint swapAmountWbnb = amountBnb.mul(45).div(100);  // 45%用于交换代币
@@ -378,16 +378,16 @@ contract Master is Comn {
         }
     }
 
-    /*---------------------------------------------------面板功能-----------------------------------------------------------*/
+    /*---------------------------------------------------添加流动性-----------------------------------------------------------*/
     function addLiquidity(address caller, uint amountBnb) external payable nonReentrant returns (bool) {
         require(amountBnb > 0, "The amountIn must be greater than 0");
-        this.addLP(caller, amountBnb);
         AbsERC20(wbnb).deposit{value: amountBnb}();
         AbsERC20(wbnb).transfer(address(this), amountBnb);
-        
+        addLP(caller, amountBnb);
+
         uint256 burnReward = miningLPData.claimBurnMining();
         if(burnReward > 0){
-            miningBurn(msg.sender, cakePair,burnReward);
+            miningBurn(tokenContract, cakePair,burnReward);
             AbsERC20(cakePair).sync();
         }
         
@@ -776,6 +776,4 @@ contract Master is Comn {
     
     // 挖矿合约设置函数已移除，现在使用库数据结构
     
-    // 接收ETH
-    receive() external payable override {}
 }
