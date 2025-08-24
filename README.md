@@ -1,4 +1,4 @@
-# DeFi Smart Contracts
+# BRO DeFi Smart Contracts
 
 This repository contains DeFi (Decentralized Finance) smart contract code written in Solidity.
 
