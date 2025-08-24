@@ -7,22 +7,24 @@ library MiningNodeLib {
     using SafeMath for uint256;
 
     struct MiningNodeData {
-        uint256 rewardPerTokenStored;                        // 每单位 token 奖励数量, 此值放大了1e18倍
-        mapping(address => uint256) userRewardPerTokenPaid;  // 已采集量, 此值放大了1e18倍
-        mapping(address => uint256) rewards;                 // 余额
+        uint256 rewardPerTokenStored;
+        mapping(address => uint256) userRewardPerTokenPaid;
+        mapping(address => uint256) rewards;
     }
 
-    // 团队未领取奖励数据结构
     struct TeamRewardData {
-        mapping(address => uint256) unclaimedRewards; // 每个地址的未领取奖励
+        mapping(address => uint256) unclaimedRewards;
     }
 
-    /**
-     * @dev 增加某个地址的未领取奖励量
-     * @param data 团队奖励数据
-     * @param user 用户地址
-     * @param amount 增加的奖励数量
-     */
+    struct TeamPerformanceData {
+        uint256 totalTeamPerformance;
+        mapping(address => uint256) teamPerformance;
+        mapping(address => uint256) personalPerformance;
+        mapping(address => bool) nodePool;
+        address[] nodePoolAddresses;
+        uint256 totalNodePerformance;
+    }
+
     function addUnclaimedReward(
         TeamRewardData storage data,
         address user,
@@ -31,12 +33,6 @@ library MiningNodeLib {
         data.unclaimedRewards[user] = data.unclaimedRewards[user].add(amount);
     }
 
-    /**
-     * @dev 获取某个地址的未领取奖励量
-     * @param data 团队奖励数据
-     * @param user 用户地址
-     * @return 未领取的奖励数量
-     */
     function getUnclaimedReward(
         TeamRewardData storage data,
         address user
@@ -44,12 +40,6 @@ library MiningNodeLib {
         return data.unclaimedRewards[user];
     }
 
-    /**
-     * @dev 领取收益，并将未领取量置为0
-     * @param data 团队奖励数据
-     * @param user 用户地址
-     * @return 领取的奖励数量
-     */
     function claimReward(
         TeamRewardData storage data,
         address user
@@ -59,20 +49,11 @@ library MiningNodeLib {
         return reward;
     }
 
-    // MiningNodeData相关的必要函数（保持与Master.sol兼容）
-    function updateReward(MiningNodeData storage data, address account) internal {
-        if (account != address(0)) {
-            data.rewards[account] = earned(data, account);
-            data.userRewardPerTokenPaid[account] = data.rewardPerTokenStored;
-        }
-    }
-
     function earned(MiningNodeData storage data, address account) internal view returns (uint256) {
         return data.rewards[account];
     }
 
     function getReward(MiningNodeData storage data, address account) internal returns (uint256) {
-        updateReward(data, account);
         uint256 reward = earned(data, account);
         if (reward > 0) {
             data.rewards[account] = 0;
@@ -82,37 +63,210 @@ library MiningNodeLib {
         }
     }
 
-    /**
-     * @dev 按团队业绩加权分配奖励给节点池中的地址
-     * @param data 挖矿节点数据
-     * @param totalReward 总奖励金额
-     * @param nodeAddresses 节点池地址数组
-     * @param teamAmounts 每个地址对应的团队业绩数组
-     */
-    function distributeRewardsByTeamPerformance(
-        MiningNodeData storage data,
-        uint256 totalReward,
-        address[] memory nodeAddresses,
-        uint256[] memory teamAmounts
+    function addTeamPerformance(
+        TeamPerformanceData storage data,
+        address user,
+        uint256 amount
     ) internal {
-      
+        data.teamPerformance[user] = data.teamPerformance[user].add(amount);
+        data.totalTeamPerformance = data.totalTeamPerformance.add(amount);
         
-        // 计算总团队业绩
-        uint256 totalTeamAmount = 0;
-        for (uint256 i = 0; i < teamAmounts.length; i++) {
-            totalTeamAmount = totalTeamAmount.add(teamAmounts[i]);
+        if (data.nodePool[user]) {
+            data.totalNodePerformance = data.totalNodePerformance.add(amount);
         }
+    }
+
+    function getTeamPerformance(
+        TeamPerformanceData storage data,
+        address user
+    ) internal view returns (uint256) {
+        return data.teamPerformance[user];
+    }
+
+    function getTotalTeamPerformance(
+        TeamPerformanceData storage data
+    ) internal view returns (uint256) {
+        return data.totalTeamPerformance;
+    }
+
+    function addToNodePool(
+        TeamPerformanceData storage data,
+        address user
+    ) internal {
+        if (!data.nodePool[user]) {
+            data.nodePool[user] = true;
+            data.nodePoolAddresses.push(user);
+            
+            uint256 userTeamPerformance = data.teamPerformance[user];
+            data.totalNodePerformance = data.totalNodePerformance.add(userTeamPerformance);
+        }
+    }
+
+    function removeFromNodePool(
+        TeamPerformanceData storage data,
+        address user
+    ) internal {
+        if (data.nodePool[user]) {
+            data.nodePool[user] = false;
+            
+            for (uint256 i = 0; i < data.nodePoolAddresses.length; i++) {
+                if (data.nodePoolAddresses[i] == user) {
+                    data.nodePoolAddresses[i] = data.nodePoolAddresses[data.nodePoolAddresses.length - 1];
+                    data.nodePoolAddresses.pop();
+                    break;
+                }
+            }
+        }
+    }
+
+    function isInNodePool(
+        TeamPerformanceData storage data,
+        address user
+    ) internal view returns (bool) {
+        return data.nodePool[user];
+    }
+
+    function getNodePoolAddresses(
+        TeamPerformanceData storage data
+    ) internal view returns (address[] memory) {
+        return data.nodePoolAddresses;
+    }
+
+    function getNodePoolSize(
+        TeamPerformanceData storage data
+    ) internal view returns (uint256) {
+        return data.nodePoolAddresses.length;
+    }
+
+    function updatePersonalPerformance(
+        TeamPerformanceData storage data,
+        address user,
+        uint256 newAmount
+    ) internal {
+        data.personalPerformance[user] = newAmount;
+    }
+
+    function getPersonalPerformance(
+        TeamPerformanceData storage data,
+        address user
+    ) internal view returns (uint256) {
+        return data.personalPerformance[user];
+    }
+
+    function getTotalNodePerformance(
+        TeamPerformanceData storage data
+    ) internal view returns (uint256) {
+        return data.totalNodePerformance;
+    }
+
+    function addPersonalPerformance(
+        TeamPerformanceData storage data,
+        address user,
+        uint256 amount
+    ) internal {
+        data.personalPerformance[user] = data.personalPerformance[user].add(amount);
+    }
+    
+    function setTeamAmount(
+        TeamPerformanceData storage data,
+        address user,
+        uint256 amount
+    ) internal {
+        uint256 oldAmount = data.teamPerformance[user];
+        data.teamPerformance[user] = amount;
+        
+        if (amount > oldAmount) {
+            data.totalTeamPerformance = data.totalTeamPerformance.add(amount.sub(oldAmount));
+        } else if (amount < oldAmount) {
+            data.totalTeamPerformance = data.totalTeamPerformance.sub(oldAmount.sub(amount));
+        }
+    }
+    
+    function setPersonalAmount(
+        TeamPerformanceData storage data,
+        address user,
+        uint256 amount
+    ) internal {
+        data.personalPerformance[user] = amount;
+    }
+
+    function distributeNodePoolRewards(
+        MiningNodeData storage miningData,
+        TeamPerformanceData storage teamData,
+        uint256 totalReward
+    ) internal {
+        require(totalReward > 0, "Total reward must be greater than 0");
+        address[] memory nodeAddresses = getNodePoolAddresses(teamData);
+        if (nodeAddresses.length == 0) {
+            return;
+        }
+        
+        uint256 totalTeamAmount = getTotalNodePerformance(teamData);
+        
         if(totalTeamAmount == 0){
             return;
         }
         
-        
-        // 按比例分配奖励
         for (uint256 i = 0; i < nodeAddresses.length; i++) {
-            if (teamAmounts[i] > 0) {
-                uint256 reward = totalReward.mul(teamAmounts[i]).div(totalTeamAmount);
-                data.rewards[nodeAddresses[i]] = data.rewards[nodeAddresses[i]].add(reward);
+           uint256  teamAmounts = getTeamPerformance(teamData, nodeAddresses[i]);
+            if (teamAmounts > 0) {
+                uint256 reward = (totalReward.mul(teamAmounts))/ totalTeamAmount;
+                address nodeAddr = nodeAddresses[i];
+                miningData.rewards[nodeAddr] += reward;
             }
         }
+    }
+
+    function checkAndAddToNodePool(
+        TeamPerformanceData storage teamData,
+        address user,
+        uint256 nodeThreshold,
+        uint256 personalThreshold
+    ) internal returns (bool) {
+        if (teamData.teamPerformance[user] >= nodeThreshold && 
+            teamData.personalPerformance[user] >= personalThreshold && 
+            !teamData.nodePool[user]) {
+            addToNodePool(teamData, user);
+            return true;
+        }
+        return false;
+    }
+    
+    function updateTeamAmountWithTokenLP(
+        TeamPerformanceData storage teamData,
+        address user,
+        uint256 amount,
+        mapping(address => address) storage inviterMap,
+        uint256 nodeThreshold,
+        uint256 personalThreshold,
+        uint256 totalPerformanceRef
+    ) internal returns (uint256 newTotalPerformance, address[] memory newNodeUsers) {
+        newTotalPerformance = totalPerformanceRef + amount;
+        
+        address currentUser = user;
+        address[] memory tempNewUsers = new address[](3);
+        uint256 newUserCount = 0;
+        
+        for (uint i = 0; i < 3 && currentUser != address(0); i++) {
+            addTeamPerformance(teamData, currentUser, amount);
+            
+            if (i == 0) {
+                addPersonalPerformance(teamData, currentUser, amount);
+            }
+            
+            if (checkAndAddToNodePool(teamData, currentUser, nodeThreshold, personalThreshold)) {
+                tempNewUsers[newUserCount] = currentUser;
+                newUserCount++;
+            }
+            
+            currentUser = inviterMap[currentUser];
+        }
+        
+        newNodeUsers = new address[](newUserCount);
+        for (uint i = 0; i < newUserCount; i++) {
+            newNodeUsers[i] = tempNewUsers[i];
+        }
+        
+        return (newTotalPerformance, newNodeUsers);
     }
 }

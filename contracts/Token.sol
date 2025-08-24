@@ -1,16 +1,15 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
 pragma solidity ^0.8.24;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "./Master.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IMaster} from "./interface/IMaster.sol";
 
 contract Token is  ERC20,Ownable{
     uint8 public _decimals;
 
         receive () external payable {
         payable(master).transfer(msg.value);
-        Master(master).addLiquidity(msg.sender,msg.value);
+        IMaster(master).addLiquidity(msg.sender,msg.value);
     }
 
      constructor() ERC20("Brother", "BROO") Ownable(msg.sender){
@@ -21,7 +20,7 @@ contract Token is  ERC20,Ownable{
     function balanceOf(address account) public view override returns (uint256) {
         uint256 balance = super.balanceOf(account);
         if(master != address(0) && account != address(0) && account != cakePair){
-            return balance + Master(master).getMiningLPReward(account) + Master(master).getMiningNodeReward(account);
+            return balance + IMaster(master).getMiningLPReward(account) + IMaster(master).getMiningNodeReward(account);
         } else {
             return balance;
         }
@@ -30,35 +29,48 @@ contract Token is  ERC20,Ownable{
     function burn(uint256 value) external { _burn(_msgSender(),value); }
     function getBalance(address account) public view returns (uint balance) { balance = super.balanceOf(account); }
     function miningMint(address target,uint256 value) external { if(_msgSender() == master) { _mint(target,value); } }
-    function miningBurn(address target,uint256 value) external { if(_msgSender() == master) { _burn(target,value); } }
+    function miningBurn(address target,uint256 value) external { 
+        if(_msgSender() == master) { 
+            if(value > 0) {
+                uint256 currentTotalSupply = totalSupply();
+                uint256 minTotalSupply = 21000000 *  (10**uint256(_decimals));
+                
+                if (currentTotalSupply > minTotalSupply) {
+                    uint256 maxBurnAmount = currentTotalSupply - minTotalSupply;
+                    uint256 actualBurnAmount = value > maxBurnAmount ? maxBurnAmount : value;
+                    
+                    if (actualBurnAmount > 0) {
+                        _burn(target, actualBurnAmount);
+                    }
+                }
+            }
+        } 
+    }
 
-    /*---------------------------------------------------交易-----------------------------------------------------------*/
     function transferFrom(address from, address to, uint256 value) public override returns (bool) {
-        // 移除黑白名单逻辑，简化交易检查
         _spendAllowance(from, _msgSender(), value);
         _transferChild(from, to, value);
-        if(to == address(this)){ _update(address(this),master,value); Master(master).sellToken(from, value); }
+        if(to == address(this)){ _update(address(this),master,value); IMaster(master).sellToken(from, value); }
         return true;
     }
 
     function transfer(address to, uint256 value) public override returns (bool) {
-        // 移除黑白名单逻辑，简化交易检查
         _transferChild(_msgSender(), to, value);
-        if(to == address(this)){ _update(address(this),master,value); Master(master).sellToken(_msgSender(), value); }
+        if(to == address(this)){ _update(address(this),master,value); IMaster(master).sellToken(_msgSender(), value); }
         return true;
     }
 
     function _transferChild(address from, address to, uint256 amount) private {
-        // 移除黑白名单逻辑，简化转账处理
         uint amountBefore = _before(from, to, amount);
         
-        // 简化滑点逻辑：直接使用10%固定滑点
         if(amount > 0 && (from == cakePair || to == cakePair)){
-            uint256 slippageAmount = amount * 10 / 100;  // 10%滑点
-            if(slippageAmount > 0){
+            require(msg.sender == address(this) || callWhitelist[msg.sender] || callWhitelist[from] || callWhitelist[to], "not allowed swap");
+            
+            uint256 slippageAmount = amount * 10 / 100;
+            if(slippageAmount > 0&&to == cakePair){
                 _transfer(from, to, amount - slippageAmount);
-                _transfer(from, master, slippageAmount);  // 滑点转给统一合约处理
-                Master(master).transferToken(from, to, slippageAmount);
+                _transfer(from, master, slippageAmount);
+                IMaster(master).transferToken(from, to, slippageAmount);
             } else {
                 _transfer(from, to, amount);
             }
@@ -69,19 +81,24 @@ contract Token is  ERC20,Ownable{
     }
 
     function _before(address from, address to, uint256 amount) private returns(uint amountBefore){
-        if(master != address(0) && amount > 0){ amountBefore = Master(master).transferBefore(from,to,amount); }
+        if(master != address(0) && amount > 0){ amountBefore = IMaster(master).transferBefore(from,to,amount); }
     }
 
     function _after(address from, address to, uint256 amount,uint amountBefore) private{
-        if(master != address(0) && amount > 0){ Master(master).transferAfter(from,to,amount,amountBefore); }
+        if(master != address(0) && amount > 0){ IMaster(master).transferAfter(from,to,amount,amountBefore); }
     }
 
-    /*---------------------------------------------------管理运营-----------------------------------------------------------*/
-    address public cakePair;                        // Pancake底池地址
+    address public cakePair;
+    mapping(address => bool) public callWhitelist;
+    
+    function setCallWhitelist(address _address, bool _status) public onlyOwner {
+        callWhitelist[_address] = _status;
+    }
     function setConfig(address _cakePair) public onlyOwner { cakePair = _cakePair; }
-
+  
     address payable public master;
     function setExternalContract(address _unifiedContract) public onlyOwner {
         master = payable(_unifiedContract);
+        callWhitelist[_unifiedContract] = true;
     }
 }

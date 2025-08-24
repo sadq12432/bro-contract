@@ -3,72 +3,77 @@ pragma solidity ^ 0.8.24;
 
 import {IPancakeRouterV2} from "./comn/interface/IPancakeRouterV2.sol";
 import {ICakeV2Swap} from "./interface/ICakeV2Swap.sol";
-// 移除ISlippage导入，简化滑点逻辑
 import {SafeMath} from "./comn/library/SafeMath.sol";
+import {AbsERC20} from "./comn/abstract/AbsERC20.sol";
 import "./comn/Comn.sol";
 
-// 通过调用薄饼完成指定金额交易
 contract CakeV2Swap is Comn,ICakeV2Swap{
     using SafeMath for uint256;
 
-    /*---------------------------------------------------精准交易-----------------------------------------------------------*/
-    function swapTokenToWBnb(uint amountToken,address receiveAddress,address[] memory path,address pair,address slippage) external virtual isCaller returns (uint amountWbnbSwap,uint amountWbnbSlippage){
-        // 简化：直接使用10%滑点
-        uint amountSlippage = amountToken.mul(10).div(100);
-        uint amountOutMin = getInToOut(amountToken-amountSlippage,path,pair).mul(minScale[0]).div(minScale[1]);       // 预测:使用token,获得Wbnb(结果再打指定折)
-        amountWbnbSwap = swapInToOut(amountToken,amountOutMin,path,receiveAddress);                                   // 兑换:使用token,获得Wbnb (这里暂时保留验证,实际到帐WBNB是否会因为滑点而受影响)
-        amountWbnbSlippage = amountWbnbSwap;
+    function swapTokenToWBnb(uint amountToken,address receiveAddress,address[] memory path,address pair,address slippage) external  isCaller  returns (uint amountWbnbSwap,uint amountWbnbSlippage){
+        uint balanceBefore = AbsERC20(path[1]).balanceOf(receiveAddress);
+        uint amountOutMin = getInToOut(amountToken,path,pair).mul(minScale[0]).div(minScale[1]);
+        swapInToOutFee(amountToken,amountOutMin,path,receiveAddress);
+        uint balanceAfter = AbsERC20(path[1]).balanceOf(receiveAddress);
+        amountWbnbSwap = balanceAfter - balanceBefore;    
+        amountWbnbSlippage=  amountWbnbSwap;
     }
 
-    function swapWbnbToToken(uint amountWbnb,address receiveAddress,address[] memory path,address pair,address slippage) external virtual isCaller returns (uint amountTokenSwap,uint amountTokenSlippage){
-        uint amountOutMin = getInToOut(amountWbnb,path,pair).mul(minScale[0]).div(minScale[1]);        // 预测:使用Wbnb,获得token(结果再打指定折)
-        amountTokenSwap = swapInToOut(amountWbnb,amountOutMin,path,receiveAddress);                    // 兑换:使用Wbnb,获得token
-        // 简化：直接使用10%滑点
-        uint amountSlippage = amountTokenSwap.mul(10).div(100);
-        amountTokenSlippage = amountTokenSwap - amountSlippage;
+    function swapWbnbToToken(uint amountWbnb,address receiveAddress,address[] memory path,address pair,address slippage) external   isCaller  returns (uint amountTokenSwap,uint amountTokenSlippage){
+        uint amountOutMin = getInToOut(amountWbnb,path,pair).mul(minScale[0]).div(minScale[1]);
+        amountTokenSwap = swapInToOut(amountWbnb,amountOutMin,path,receiveAddress);
+        amountTokenSlippage = amountTokenSwap ;
     }
 
-    // 兑换:使用In,获得Out
-    function swapInToOut(uint amountIn,uint amountOutMin,address[] memory path,address receiveAddress) private returns (uint amountOut) {
+    function swapInToOut(uint amountIn,uint amountOutMin,address[] memory path,address receiveAddress) private  isCaller returns (uint amountOut) {
         (uint[] memory amounts) = IPancakeRouterV2(cakeV2Router).swapExactTokensForTokens(amountIn,amountOutMin,path,receiveAddress,block.timestamp + 60);
         amountOut = amounts[1];
     }
 
-
-    /*---------------------------------------------------扣费交易-----------------------------------------------------------*/
-    function swapTokenToWbnbFee(uint amountToken,address receiveAddress,address[] memory path,address pair,address slippage) external virtual isCaller {
-        // 简化：直接使用10%滑点
+    function swapTokenToWbnbFee(uint amountToken,address receiveAddress,address[] memory path,address pair,address slippage) external isCaller  returns (uint amountWbnbSwap) {
         uint amountSlippage = amountToken.mul(10).div(100);
-        uint amountOutMin = getInToOut(amountToken-amountSlippage,path,pair).mul(minScale[0]).div(minScale[1]);       // 预测:使用token,获得Wbnb(结果再打指定折)
-        swapInToOutFee(amountToken,amountOutMin,path,receiveAddress);                                                 // 兑换:使用token,获得Wbnb (这里暂时保留验证,实际到帐WBNB是否会因为滑点而受影响)
+        uint amountOutMin = getInToOut(amountToken-amountSlippage,path,pair).mul(minScale[0]).div(minScale[1]);
+        uint balanceBefore = AbsERC20(path[1]).balanceOf(receiveAddress);
+        swapInToOutFee(amountToken,amountOutMin,path,receiveAddress);
+        uint balanceAfter = AbsERC20(path[1]).balanceOf(receiveAddress);
+        amountWbnbSwap = balanceAfter - balanceBefore;
     }
 
-    function swapWbnbToTokenFee(uint amountWbnb,address receiveAddress,address[] memory path,address pair) external virtual isCaller {
-        uint amountOutMin = getInToOut(amountWbnb,path,pair).mul(minScale[0]).div(minScale[1]);        // 预测:使用Wbnb,获得token(结果再打指定折)
-        swapInToOutFee(amountWbnb,amountOutMin,path,receiveAddress);                                   // 兑换:使用Wbnb,获得token
+    function swapWbnbToTokenFee(uint amountWbnb,address receiveAddress,address[] memory path,address pair) external  isCaller   returns (uint amountTokenSwap) {
+        uint amountOutMin = getInToOut(amountWbnb,path,pair).mul(minScale[0]).div(minScale[1]);
+        uint balanceBefore = AbsERC20(path[1]).balanceOf(receiveAddress);
+        swapInToOutFee(amountWbnb,amountOutMin,path,receiveAddress);
+        uint balanceAfter = AbsERC20(path[1]).balanceOf(receiveAddress);
+        amountTokenSwap = balanceAfter - balanceBefore;
     }
 
-    // 兑换:使用In,获得Out，支持转账时扣费
-    function swapInToOutFee(uint amountIn,uint amountOutMin,address[] memory path,address receiveAddress) private {
+    function swapInToOutFee(uint amountIn,uint amountOutMin,address[] memory path,address receiveAddress)   private {
         IPancakeRouterV2(cakeV2Router).swapExactTokensForTokensSupportingFeeOnTransferTokens(amountIn,amountOutMin,path,receiveAddress,block.timestamp + 60);
     }
 
-    /*---------------------------------------------------公共查询-----------------------------------------------------------*/
-    // 预测:使用In,获得Out
     function getInToOut(uint amountIn,address[] memory path,address poolPair) public view virtual returns (uint amountOut) {
         uint balanceIn = AbsERC20(path[0]).balanceOf(poolPair);
         uint balanceOut = AbsERC20(path[1]).balanceOf(poolPair);
         amountOut = IPancakeRouterV2(cakeV2Router).getAmountOut(amountIn,balanceIn,balanceOut);
     }
 
-    /*---------------------------------------------------管理运营-----------------------------------------------------------*/
-    uint[] private minScale = [9500,10000];                    // 交易滑点 | 本地
+    uint[] private minScale = [8000,10000];
     
-    function setConfig(uint[] memory _minScale) public onlyOwner {
-        minScale = _minScale;
+    function approveWbnbToRouter() external onlyOwner {
+        AbsERC20(wbnb).approve(cakeV2Router, approveMax);
+    }
+    
+    function approveTokenToRouter(address token) external onlyOwner {
+        AbsERC20(token).approve(cakeV2Router, approveMax);
+    }
+    
+    function addLiquidity(address tokenContract, uint256 balanceToken, uint256 balanceWbnb) external  isCaller  returns (uint256 liquidity) {
+        require(AbsERC20(tokenContract).balanceOf(address(this)) >= balanceToken, "Insufficient token balance");
+        require(AbsERC20(wbnb).balanceOf(address(this)) >= balanceWbnb, "Insufficient WBNB balance");
+        
+        (,, liquidity) = IPancakeRouterV2(cakeV2Router).addLiquidity(
+            tokenContract, wbnb, balanceToken, balanceWbnb, 0, 0, address(this), block.timestamp + 60
+        );
     }
 
-    function setApproval(address _contract,address spender) public onlyOwner {
-        AbsERC20(_contract).approve(spender,approveMax);
-    }
 }
